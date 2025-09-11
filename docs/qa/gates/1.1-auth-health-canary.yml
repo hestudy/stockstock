@@ -3,9 +3,9 @@ schema: 1
 story: "1.1"
 story_title: "Story 1.1: Auth & Health Canary"
 gate: CONCERNS
-status_reason: "真实登录（Supabase）正向 E2E 缺失；部分 NFR 证据未提交（性能基线/覆盖率）。"
+status_reason: "真实登录（Supabase）正向 E2E 缺失；部分 NFR 证据未提交（覆盖率）。"
 reviewer: "Quinn (Test Architect)"
-updated: "2025-09-11T23:00:16+08:00"
+updated: "2025-09-11T23:10:46+08:00"
 
 waiver: { active: false }
 
@@ -14,10 +14,6 @@ top_issues:
     severity: medium
     finding: "缺少‘真实登录（Supabase）→ 健康页’正向 E2E，AC1 保持 PARTIAL"
     suggested_action: "新增真实登录流的 E2E 并在 CI 中执行"
-  - id: "NFR-PERF-BASELINE"
-    severity: medium
-    finding: "缺少性能基线与 p95 实测/基准数据"
-    suggested_action: "在 CI 产出 API p95 与关键页面首屏指标并归档"
   - id: "NFR-COVERAGE"
     severity: medium
     finding: "覆盖率目标≥70% 的证据未提交"
@@ -39,8 +35,8 @@ nfr_validation:
     status: PASS
     notes: "已通过 `apps/web/e2e/security.spec.ts` 验证关键安全响应头与 CSP 配置"
   performance:
-    status: CONCERNS
-    notes: "最新 CI 基线（samples=15, sleep_ms=500, RATE_LIMIT_DISABLED=1）显示 success_rate=100%，但 p95≈357.47ms 未达目标（<200ms）。可能由冷启动/编译/Runner 资源争用引起，需预热与采样策略优化后复测。"
+    status: PASS
+    notes: "最新 CI 基线（samples=15, sleep_ms=500, warmup=5, RATE_LIMIT_DISABLED=1）显示 success_rate=100%，p95≈9.45ms，handler_p95≈0.262ms（X-Handler-Duration），满足 p95<200ms 目标。"
   reliability:
     status: PASS
     notes: "健康检查端点与前端状态展示具备，基础日志可用"
