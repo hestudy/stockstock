@@ -48,4 +48,16 @@ describe("<HealthCard />", () => {
     expect(html).toContain("🔴 不可用");
     expect(html).toContain("服务暂时不可用");
   });
+
+  it("displays timestamp for last update (AC3)", () => {
+    const ts = "2025-01-02T03:04:05.000Z";
+    const html = ReactDOMServer.renderToString(
+      React.createElement(HealthCard, {
+        data: { service: "api", status: "up", ts, details: { api: "up" } },
+      })
+    );
+    // 使用年份作为宽松断言，避免本地化差异导致的严格格式不一致
+    expect(html).toContain("2025");
+  });
 });
+
