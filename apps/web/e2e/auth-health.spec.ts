@@ -21,4 +21,16 @@ test.describe('Auth & Health Canary (Story 1.1)', () => {
     const friendlyEN = await page.getByText(/sign in|not authorized|please login/i).first().isVisible().catch(() => false);
     expect(friendlyCN || friendlyEN).toBeTruthy();
   });
+
+  test('Authenticated (bypass) user can access /health and see HealthCard', async ({ page, context }) => {
+    // 通过 Cookie 方式绕过鉴权，仅用于测试
+    await context.addCookies([
+      { name: 'e2e_auth_bypass', value: '1', domain: 'localhost', path: '/', httpOnly: false } as any,
+    ]);
+    await page.goto('/health');
+    // 应看到健康页标题或健康卡片中的关键元素
+    const titleVisible = await page.getByRole('heading', { name: /系统健康|Health/i }).isVisible().catch(() => false);
+    const anyStatusIcon = await page.locator('text=🟢 正常, 🟠 降级, 🔴 不可用').first().isVisible().catch(() => false);
+    expect(titleVisible || anyStatusIcon).toBeTruthy();
+  });
 });
