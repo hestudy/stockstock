@@ -14,6 +14,7 @@
     "test": "turbo run test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.55.0",
     "turbo": "^2.0.6",
     "typescript": "^5.5.4"
   }
