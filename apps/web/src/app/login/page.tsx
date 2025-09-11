@@ -29,7 +29,10 @@ export default function LoginPage() {
       }
       setLoading(true);
       try {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
         if (error) {
           setMsg(error.message || "登录失败，请重试");
           return;
@@ -65,11 +68,20 @@ export default function LoginPage() {
     <main style={{ padding: 24 }}>
       <h1>登录</h1>
       {reasonText && (
-        <p style={{ background: "#fff3cd", padding: 12, border: "1px solid #ffe69c" }}>
+        <p
+          style={{
+            background: "#fff3cd",
+            padding: 12,
+            border: "1px solid #ffe69c",
+          }}
+        >
           {reasonText}
         </p>
       )}
-      <form onSubmit={onLogin} style={{ display: "grid", gap: 12, maxWidth: 360 }}>
+      <form
+        onSubmit={onLogin}
+        style={{ display: "grid", gap: 12, maxWidth: 360 }}
+      >
         <input
           placeholder="email"
           type="email"
@@ -93,11 +105,7 @@ export default function LoginPage() {
           </button>
         </div>
       </form>
-      {msg && (
-        <p style={{ color: "#b42318", marginTop: 12 }}>
-          {msg}
-        </p>
-      )}
+      {msg && <p style={{ color: "#b42318", marginTop: 12 }}>{msg}</p>}
     </main>
   );
 }

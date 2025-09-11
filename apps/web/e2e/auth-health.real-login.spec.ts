@@ -4,12 +4,17 @@ import { test, expect } from '@playwright/test';
  * Real login E2E for Story 1.1 (AC1):
  * - Uses Supabase credentials from env: E2E_SUPABASE_EMAIL / E2E_SUPABASE_PASSWORD
  * - Requires NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY configured for the web app
- * - Skips automatically if credentials are not provided, so repo can merge safely and CI can enable later
+ * - Execution toggle: set E2E_RUN_REAL_LOGIN=1 to enable locally; otherwise this suite is skipped
+ * - CI enables via repository secrets in web-e2e workflow
  */
 const E2E_EMAIL = process.env.E2E_SUPABASE_EMAIL;
 const E2E_PASSWORD = process.env.E2E_SUPABASE_PASSWORD;
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-const describeOrSkip = E2E_EMAIL && E2E_PASSWORD ? test.describe : test.describe.skip;
+const enabledToggle = process.env.E2E_RUN_REAL_LOGIN === '1';
+const hasCreds = Boolean(E2E_EMAIL && E2E_PASSWORD && SUPABASE_URL && SUPABASE_ANON);
+const describeOrSkip = hasCreds && enabledToggle ? test.describe : test.describe.skip;
 
 describeOrSkip('Auth & Health (Real Supabase Login)', () => {
   test('login with Supabase then access /health and see HealthCard', async ({ page }) => {
