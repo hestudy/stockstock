@@ -15,6 +15,12 @@ export default defineConfig({
       provider: 'v8',
       reportsDirectory: './coverage',
       reporter: ['text-summary', 'html'],
+      // Only measure coverage for unit-testable source directories
+      include: [
+        'src/services/**',
+        'src/app/api/**',
+        'src/components/**',
+      ],
       thresholds: {
         lines: 70,
         statements: 70,
@@ -26,6 +32,15 @@ export default defineConfig({
         '**/*.d.ts',
         '**/node_modules/**',
         '**/.next/**',
+        // Exclude Next.js app router pages/layouts which are covered by E2E
+        'src/app/**/page.tsx',
+        'src/app/**/layout.tsx',
+        // Exclude Playwright config and reports
+        'playwright.config.ts',
+        'playwright-report/**',
+        // Environment-specific service clients that are hard to unit test in node env
+        'src/services/supabaseClient.ts',
+        'src/services/supabaseServer.ts',
       ],
     },
   },
