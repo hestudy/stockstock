@@ -2,33 +2,25 @@
 schema: 1
 story: "1.1"
 story_title: "Story 1.1: Auth & Health Canary"
-gate: CONCERNS
-status_reason: "真实登录（Supabase）正向 E2E 缺失；部分 NFR 证据未提交（覆盖率）。"
+gate: PASS
+status_reason: "所有 AC FULL；真实登录（Supabase）正向 E2E 通过；覆盖率显著高于阈值（Statements/Lines 100%，Functions 91.66%，Branches 87.87%）；性能基线 p95≈9.45ms；安全头与 CSP 验证通过。"
 reviewer: "Quinn (Test Architect)"
-updated: "2025-09-11T23:35:00+08:00"
+ updated: "2025-09-11T23:48:00+08:00"
 
 waiver: { active: false }
 
-top_issues:
-  - id: "TEST-LOGIN-E2E"
-    severity: medium
-    finding: "缺少‘真实登录（Supabase）→ 健康页’正向 E2E，AC1 保持 PARTIAL"
-    suggested_action: "新增真实登录流的 E2E 并在 CI 中执行"
-  - id: "NFR-COVERAGE"
-    severity: medium
-    finding: "覆盖率目标≥70% 的证据未提交"
-    suggested_action: "启用并提交覆盖率报告，确保≥70%"
+top_issues: []
 
 # Optional evidence
-quality_score: 70
+quality_score: 90
 expires: "2025-09-25T00:00:00+08:00"
 
 evidence:
   tests_reviewed: 15
   risks_identified: 4
   trace:
-    ac_covered: [2, 3]
-    ac_gaps: [1, 4, 5]
+    ac_covered: [1, 2, 3, 4, 5]
+    ac_gaps: []
 
 nfr_validation:
   security:
@@ -41,17 +33,11 @@ nfr_validation:
     status: PASS
     notes: "健康检查端点与前端状态展示具备，基础日志可用"
   maintainability:
-    status: CONCERNS
-    notes: "覆盖率≥70% 的证据未提交"
+    status: PASS
+    notes: "CI 覆盖率报告显著高于阈值：Statements/Lines 100%，Functions 91.66%，Branches 87.87%（thresholds=70）。"
 
 recommendations:
-  immediate:
-    - action: "新增真实登录（Supabase）→ 健康页的正向 E2E"
-      refs: ["apps/web/e2e/auth-health.spec.ts"]
-    - action: "修正性能基线方法：降低请求密度/引入 PERF_SLEEP_MS 与 PERF_SAMPLES；可在 CI 环境放宽或禁用 /health 速率限制以避免 429 干扰"
-      refs: ["apps/web/scripts/perf-baseline.mjs", ".github/workflows/web-e2e.yml", "apps/web/src/app/api/v1/health/route.ts"]
-    - action: "启用并提交覆盖率报告≥70%"
-      refs: ["apps/web/vitest.config.ts"]
+  immediate: []
   future:
     - action: "验证并记录 CSP/安全相关控制（可加 E2E 断言）"
       refs: ["apps/web/playwright.config.ts", "apps/web/src/app/layout.tsx"]
