@@ -21,6 +21,8 @@ jobs:
       # Test account for real login scenario
       E2E_SUPABASE_EMAIL: ${{ secrets.E2E_SUPABASE_EMAIL }}
       E2E_SUPABASE_PASSWORD: ${{ secrets.E2E_SUPABASE_PASSWORD }}
+      # Toggle real login suite ON in CI
+      E2E_RUN_REAL_LOGIN: '1'
       # Optional: override baseURL for Playwright if needed
       # E2E_BASE_URL: ${{ secrets.E2E_BASE_URL }}
       CI: true
@@ -48,6 +50,26 @@ jobs:
 
       - name: Run web E2E (Playwright)
         run: pnpm -w --filter web e2e
+
+      - name: Start Web (background) for perf baseline
+        run: |
+          pnpm -w --filter web dev & echo $! > web_pid.txt
+          npx wait-on http://localhost:3000
+
+      - name: Measure API p95 baseline (health)
+        run: node apps/web/scripts/perf-baseline.mjs
+
+      - name: Stop Web (cleanup)
+        if: always()
+        run: |
+          kill $(cat web_pid.txt) || true
+
+      - name: Upload performance baseline
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-perf-baseline
+          path: apps/web/perf/
+          if-no-files-found: warn
 
       - name: Upload Playwright report (on failure)
         if: failure()

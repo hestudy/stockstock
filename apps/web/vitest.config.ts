@@ -15,6 +15,12 @@ export default defineConfig({
       provider: 'v8',
       reportsDirectory: './coverage',
       reporter: ['text-summary', 'html'],
+      thresholds: {
+        lines: 70,
+        statements: 70,
+        functions: 70,
+        branches: 70,
+      },
       exclude: [
         'e2e/**',
         '**/*.d.ts',
