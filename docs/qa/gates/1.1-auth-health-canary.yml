@@ -5,7 +5,7 @@ story_title: "Story 1.1: Auth & Health Canary"
 gate: CONCERNS
 status_reason: "真实登录（Supabase）正向 E2E 缺失；部分 NFR 证据未提交（覆盖率）。"
 reviewer: "Quinn (Test Architect)"
-updated: "2025-09-11T23:10:46+08:00"
+updated: "2025-09-11T23:35:00+08:00"
 
 waiver: { active: false }
 
@@ -48,7 +48,7 @@ recommendations:
   immediate:
     - action: "新增真实登录（Supabase）→ 健康页的正向 E2E"
       refs: ["apps/web/e2e/auth-health.spec.ts"]
-    - action: "修正性能基线方法：降低请求密度/引入 PER F_SLEEP_MS 与 PERF_SAMPLES；可在 CI 环境放宽或禁用 /health 速率限制以避免 429 干扰"
+    - action: "修正性能基线方法：降低请求密度/引入 PERF_SLEEP_MS 与 PERF_SAMPLES；可在 CI 环境放宽或禁用 /health 速率限制以避免 429 干扰"
       refs: ["apps/web/scripts/perf-baseline.mjs", ".github/workflows/web-e2e.yml", "apps/web/src/app/api/v1/health/route.ts"]
     - action: "启用并提交覆盖率报告≥70%"
       refs: ["apps/web/vitest.config.ts"]
