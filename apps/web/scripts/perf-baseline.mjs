@@ -8,6 +8,7 @@ const OUT_DIR = path.join(process.cwd(), 'apps/web/perf');
 const OUT_FILE = path.join(OUT_DIR, 'baseline.json');
 const SAMPLES = Number(process.env.PERF_SAMPLES || 30);
 const SLEEP_MS = Number(process.env.PERF_SLEEP_MS || 50);
+const WARMUP = Number(process.env.PERF_WARMUP || 0);
 
 function percentile(sorted, p) {
   if (!sorted.length) return null;
@@ -22,13 +23,20 @@ async function measureOnce() {
   const res = await fetch(TARGET, { method: 'GET' });
   const t1 = performance.now();
   const ms = t1 - t0;
-  let ok = res.ok;
-  let status = res.status;
-  return { ms, ok, status };
+  const ok = res.ok;
+  const status = res.status;
+  const handlerHeader = res.headers.get('x-handler-duration');
+  const handlerMs = handlerHeader ? Number(handlerHeader) : null;
+  return { ms, handlerMs, ok, status };
 }
 
 async function main() {
   const results = [];
+  // Warmup phase to avoid cold-start noise (ignored results)
+  for (let i = 0; i < WARMUP; i++) {
+    try { await measureOnce(); } catch {}
+    if (SLEEP_MS > 0) await sleep(SLEEP_MS);
+  }
   for (let i = 0; i < SAMPLES; i++) {
     try {
       const r = await measureOnce();
@@ -42,9 +50,13 @@ async function main() {
 
   // Only compute percentiles on successful samples to avoid mixing 429/5xx noise
   const okLatencies = results.filter(r => r.ok && Number.isFinite(r.ms)).map(r => r.ms).sort((a, b) => a - b);
+  const okHandler = results.filter(r => r.ok && Number.isFinite(r.handlerMs ?? NaN)).map(r => r.handlerMs).sort((a, b) => a - b);
   const p50 = percentile(okLatencies, 50);
   const p95 = percentile(okLatencies, 95);
   const p99 = percentile(okLatencies, 99);
+  const hp50 = percentile(okHandler, 50);
+  const hp95 = percentile(okHandler, 95);
+  const hp99 = percentile(okHandler, 99);
   const failures = results.filter(r => !r.ok).length;
   const success = results.length - failures;
 
@@ -58,6 +70,9 @@ async function main() {
       p99_ms: p99,
       min_ms: okLatencies[0] ?? null,
       max_ms: okLatencies.at(-1) ?? null,
+      handler_p50_ms: hp50,
+      handler_p95_ms: hp95,
+      handler_p99_ms: hp99,
       failures,
       success_rate: success / results.length,
       failure_rate: failures / results.length,
@@ -66,6 +81,7 @@ async function main() {
     params: {
       samples: SAMPLES,
       sleep_ms: SLEEP_MS,
+      warmup: WARMUP,
     },
   };
 

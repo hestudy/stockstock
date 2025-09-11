@@ -5,7 +5,7 @@ story_title: "Story 1.1: Auth & Health Canary"
 gate: CONCERNS
 status_reason: "真实登录（Supabase）正向 E2E 缺失；部分 NFR 证据未提交（性能基线/覆盖率）。"
 reviewer: "Quinn (Test Architect)"
-updated: "2025-09-11T22:21:20+08:00"
+updated: "2025-09-11T23:00:16+08:00"
 
 waiver: { active: false }
 
@@ -40,7 +40,7 @@ nfr_validation:
     notes: "已通过 `apps/web/e2e/security.spec.ts` 验证关键安全响应头与 CSP 配置"
   performance:
     status: CONCERNS
-    notes: "CI 基线 `web-perf-baseline` 显示 p95≈9.70ms，但 success_rate≈10%（30 样本中 27 失败），疑因 `/api/v1/health` 速率限制干扰导致大量 429；当前统计不具代表性，需修正方法后重采。"
+    notes: "最新 CI 基线（samples=15, sleep_ms=500, RATE_LIMIT_DISABLED=1）显示 success_rate=100%，但 p95≈357.47ms 未达目标（<200ms）。可能由冷启动/编译/Runner 资源争用引起，需预热与采样策略优化后复测。"
   reliability:
     status: PASS
     notes: "健康检查端点与前端状态展示具备，基础日志可用"

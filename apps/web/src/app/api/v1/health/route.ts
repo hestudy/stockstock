@@ -13,6 +13,7 @@ function getClientIp(req: Request): string {
 }
 
 export async function GET(request: Request) {
+  const t0 = performance.now();
   // 速率限制检查（CI 或显式禁用时跳过）
   const DISABLE_RATE_LIMIT = process.env.RATE_LIMIT_DISABLED === "1";
   if (!DISABLE_RATE_LIMIT) {
@@ -45,5 +46,8 @@ export async function GET(request: Request) {
     },
     ts: new Date().toISOString(),
   };
-  return NextResponse.json(payload, { status: 200 });
+  const res = NextResponse.json(payload, { status: 200 });
+  const ms = performance.now() - t0;
+  res.headers.set("x-handler-duration", ms.toFixed(3));
+  return res;
 }

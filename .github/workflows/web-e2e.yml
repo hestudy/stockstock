@@ -30,6 +30,7 @@ jobs:
       RATE_LIMIT_DISABLED: '1'
       PERF_SAMPLES: '15'
       PERF_SLEEP_MS: '500'
+      PERF_WARMUP: '5'
 
     steps:
       - name: Checkout
