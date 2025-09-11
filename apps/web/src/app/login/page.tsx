@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getSupabaseBrowserClient } from "../../services/supabaseClient";
+import { getFriendlyMessage } from "../../services/errors";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -13,10 +14,7 @@ export default function LoginPage() {
   const sp = useSearchParams();
 
   const reason = sp.get("reason");
-  const reasonText = useMemo(() => {
-    if (reason === "unauthenticated") return "请先登录以访问该页面。";
-    return null;
-  }, [reason]);
+  const reasonText = useMemo(() => getFriendlyMessage(reason), [reason]);
 
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
 
