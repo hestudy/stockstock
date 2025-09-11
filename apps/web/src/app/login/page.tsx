@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import { useCallback, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getSupabaseBrowserClient } from "../../services/supabaseClient";

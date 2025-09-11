@@ -10,5 +10,17 @@ export default defineConfig({
       '.next/**',
     ],
     environment: 'node',
+    coverage: {
+      enabled: true,
+      provider: 'v8',
+      reportsDirectory: './coverage',
+      reporter: ['text-summary', 'html'],
+      exclude: [
+        'e2e/**',
+        '**/*.d.ts',
+        '**/node_modules/**',
+        '**/.next/**',
+      ],
+    },
   },
 });
