@@ -1,0 +1,65 @@
+# <!-- Generated from qa-gate template v1 by Quinn -->
+schema: 1
+story: "1.1"
+story_title: "Story 1.1: Auth & Health Canary"
+gate: CONCERNS
+status_reason: "真实登录（Supabase）正向 E2E 缺失；部分 NFR 证据未提交（CSP/性能基线/覆盖率）。"
+reviewer: "Quinn (Test Architect)"
+updated: "2025-09-11T16:38:00+08:00"
+
+waiver: { active: false }
+
+top_issues:
+  - id: "TEST-LOGIN-E2E"
+    severity: medium
+    finding: "缺少‘真实登录（Supabase）→ 健康页’正向 E2E，AC1 保持 PARTIAL"
+    suggested_action: "新增真实登录流的 E2E 并在 CI 中执行"
+  - id: "NFR-PERF-BASELINE"
+    severity: medium
+    finding: "缺少性能基线与 p95 实测/基准数据"
+    suggested_action: "在 CI 产出 API p95 与关键页面首屏指标并归档"
+  - id: "NFR-COVERAGE"
+    severity: medium
+    finding: "覆盖率目标≥70% 的证据未提交"
+    suggested_action: "启用并提交覆盖率报告，确保≥70%"
+  - id: "SEC-CSP"
+    severity: low
+    finding: "前端 CSP/安全控制未验证记录"
+    suggested_action: "补充 CSP 验证与记录（可在 E2E 增加相关断言）"
+
+# Optional evidence
+quality_score: 70
+expires: "2025-09-25T00:00:00+08:00"
+
+evidence:
+  tests_reviewed: 15
+  risks_identified: 4
+  trace:
+    ac_covered: [2, 3]
+    ac_gaps: [1, 4, 5]
+
+nfr_validation:
+  security:
+    status: CONCERNS
+    notes: "Auth/路由保护实现；/health 有速率限制与 429 单测；CSP 等未验证"
+  performance:
+    status: CONCERNS
+    notes: "存在目标（API p95<200ms），缺少实测/基准数据"
+  reliability:
+    status: PASS
+    notes: "健康检查端点与前端状态展示具备，基础日志可用"
+  maintainability:
+    status: CONCERNS
+    notes: "覆盖率≥70% 的证据未提交"
+
+recommendations:
+  immediate:
+    - action: "新增真实登录（Supabase）→ 健康页的正向 E2E"
+      refs: ["apps/web/e2e/auth-health.spec.ts"]
+    - action: "在 CI 产出 API p95 与关键页面首屏基线，并归档"
+      refs: ["apps/web/vitest.config.ts", "apps/web/playwright.config.ts"]
+    - action: "启用并提交覆盖率报告≥70%"
+      refs: ["apps/web/vitest.config.ts"]
+  future:
+    - action: "验证并记录 CSP/安全相关控制（可加 E2E 断言）"
+      refs: ["apps/web/playwright.config.ts", "apps/web/src/app/layout.tsx"]
