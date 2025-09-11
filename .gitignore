@@ -1,0 +1,102 @@
+##############################
+# Root / Monorepo General
+##############################
+node_modules/
+.pnpm-store/
+.turbo/
+turbo/
+dist/
+build/
+out/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+*.orig
+
+##############################
+# Next.js
+##############################
+.next/
+.next/cache/
+.next/static/
+apps/**/.next/
+apps/**/out/
+
+##############################
+# Logs
+##############################
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+##############################
+# Environment files
+##############################
+.env
+.env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
+apps/**/.env
+apps/**/.env.local
+packages/**/.env
+packages/**/.env.local
+services/**/.env
+services/**/.env.local
+# Keep examples tracked
+!.env.example
+apps/**/!.env.example
+packages/**/!.env.example
+services/**/!.env.example
+
+##############################
+# Editors / OS
+##############################
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+##############################
+# TypeScript / Build caches
+##############################
+**/*.tsbuildinfo
+
+##############################
+# Jest / Testing
+##############################
+jest-cache/
+jest-results/
+coverage.xml
+htmlcov/
+
+##############################
+# Python (e.g., services/backtest)
+##############################
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.pytype/
+*.sqlite3
+*.db
+
+##############################
+# Deployment / Platforms
+##############################
+.vercel/
+.vercel/cache
