@@ -26,6 +26,10 @@ jobs:
       # Optional: override baseURL for Playwright if needed
       # E2E_BASE_URL: ${{ secrets.E2E_BASE_URL }}
       CI: true
+      # Perf and API settings
+      RATE_LIMIT_DISABLED: '1'
+      PERF_SAMPLES: '15'
+      PERF_SLEEP_MS: '500'
 
     steps:
       - name: Checkout

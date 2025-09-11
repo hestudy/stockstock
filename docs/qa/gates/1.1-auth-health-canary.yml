@@ -5,7 +5,7 @@ story_title: "Story 1.1: Auth & Health Canary"
 gate: CONCERNS
 status_reason: "真实登录（Supabase）正向 E2E 缺失；部分 NFR 证据未提交（性能基线/覆盖率）。"
 reviewer: "Quinn (Test Architect)"
-updated: "2025-09-11T21:50:22+08:00"
+updated: "2025-09-11T22:21:20+08:00"
 
 waiver: { active: false }
 
@@ -22,10 +22,6 @@ top_issues:
     severity: medium
     finding: "覆盖率目标≥70% 的证据未提交"
     suggested_action: "启用并提交覆盖率报告，确保≥70%"
-  - id: "SEC-CSP"
-    severity: low
-    finding: "前端 CSP/安全控制未验证记录"
-    suggested_action: "补充 CSP 验证与记录（可在 E2E 增加相关断言）"
 
 # Optional evidence
 quality_score: 70
@@ -44,7 +40,7 @@ nfr_validation:
     notes: "已通过 `apps/web/e2e/security.spec.ts` 验证关键安全响应头与 CSP 配置"
   performance:
     status: CONCERNS
-    notes: "存在目标（API p95<200ms），缺少实测/基准数据"
+    notes: "CI 基线 `web-perf-baseline` 显示 p95≈9.70ms，但 success_rate≈10%（30 样本中 27 失败），疑因 `/api/v1/health` 速率限制干扰导致大量 429；当前统计不具代表性，需修正方法后重采。"
   reliability:
     status: PASS
     notes: "健康检查端点与前端状态展示具备，基础日志可用"
@@ -56,8 +52,8 @@ recommendations:
   immediate:
     - action: "新增真实登录（Supabase）→ 健康页的正向 E2E"
       refs: ["apps/web/e2e/auth-health.spec.ts"]
-    - action: "在 CI 产出 API p95 与关键页面首屏基线，并归档"
-      refs: ["apps/web/vitest.config.ts", "apps/web/playwright.config.ts"]
+    - action: "修正性能基线方法：降低请求密度/引入 PER F_SLEEP_MS 与 PERF_SAMPLES；可在 CI 环境放宽或禁用 /health 速率限制以避免 429 干扰"
+      refs: ["apps/web/scripts/perf-baseline.mjs", ".github/workflows/web-e2e.yml", "apps/web/src/app/api/v1/health/route.ts"]
     - action: "启用并提交覆盖率报告≥70%"
       refs: ["apps/web/vitest.config.ts"]
   future:

@@ -7,6 +7,7 @@ const TARGET = new URL('/api/v1/health', BASE_URL).toString();
 const OUT_DIR = path.join(process.cwd(), 'apps/web/perf');
 const OUT_FILE = path.join(OUT_DIR, 'baseline.json');
 const SAMPLES = Number(process.env.PERF_SAMPLES || 30);
+const SLEEP_MS = Number(process.env.PERF_SLEEP_MS || 50);
 
 function percentile(sorted, p) {
   if (!sorted.length) return null;
@@ -35,15 +36,17 @@ async function main() {
     } catch (e) {
       results.push({ ms: NaN, ok: false, status: 0, error: String(e) });
     }
-    // small gap between requests to avoid tight loop interference
-    await sleep(50);
+    // small gap between requests to avoid tight loop interference (parameterized)
+    await sleep(SLEEP_MS);
   }
 
-  const latencies = results.filter(r => Number.isFinite(r.ms)).map(r => r.ms).sort((a, b) => a - b);
-  const p50 = percentile(latencies, 50);
-  const p95 = percentile(latencies, 95);
-  const p99 = percentile(latencies, 99);
+  // Only compute percentiles on successful samples to avoid mixing 429/5xx noise
+  const okLatencies = results.filter(r => r.ok && Number.isFinite(r.ms)).map(r => r.ms).sort((a, b) => a - b);
+  const p50 = percentile(okLatencies, 50);
+  const p95 = percentile(okLatencies, 95);
+  const p99 = percentile(okLatencies, 99);
   const failures = results.filter(r => !r.ok).length;
+  const success = results.length - failures;
 
   const payload = {
     target: TARGET,
@@ -53,12 +56,17 @@ async function main() {
       p50_ms: p50,
       p95_ms: p95,
       p99_ms: p99,
-      min_ms: latencies[0] ?? null,
-      max_ms: latencies.at(-1) ?? null,
+      min_ms: okLatencies[0] ?? null,
+      max_ms: okLatencies.at(-1) ?? null,
       failures,
-      success_rate: (results.length - failures) / results.length,
+      success_rate: success / results.length,
+      failure_rate: failures / results.length,
     },
     raw_sample_count: results.length,
+    params: {
+      samples: SAMPLES,
+      sleep_ms: SLEEP_MS,
+    },
   };
 
   await fs.mkdir(OUT_DIR, { recursive: true });

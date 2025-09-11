@@ -13,19 +13,22 @@ function getClientIp(req: Request): string {
 }
 
 export async function GET(request: Request) {
-  // 速率限制检查
-  const ip = getClientIp(request);
-  const now = Date.now();
-  const bucket = buckets.get(ip);
-  if (!bucket || now > bucket.resetAt) {
-    buckets.set(ip, { count: 1, resetAt: now + WINDOW_MS });
-  } else {
-    bucket.count += 1;
-    if (bucket.count > LIMIT) {
-      return NextResponse.json(
-        { error: { message: "请求过于频繁，请稍后再试。", reason: "rate_limited" } },
-        { status: 429 }
-      );
+  // 速率限制检查（CI 或显式禁用时跳过）
+  const DISABLE_RATE_LIMIT = process.env.RATE_LIMIT_DISABLED === "1";
+  if (!DISABLE_RATE_LIMIT) {
+    const ip = getClientIp(request);
+    const now = Date.now();
+    const bucket = buckets.get(ip);
+    if (!bucket || now > bucket.resetAt) {
+      buckets.set(ip, { count: 1, resetAt: now + WINDOW_MS });
+    } else {
+      bucket.count += 1;
+      if (bucket.count > LIMIT) {
+        return NextResponse.json(
+          { error: { message: "请求过于频繁，请稍后再试。", reason: "rate_limited" } },
+          { status: 429 }
+        );
+      }
     }
   }
 
