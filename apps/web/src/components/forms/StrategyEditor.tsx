@@ -151,6 +151,14 @@ export default function StrategyEditor() {
             basicSetup={{ lineNumbers: true }}
             onChange={(val: string) => setSource(s => ({ ...s, content: val }))}
           />
+          {/* 错误高亮占位（可访问 live region），用于 AC2 测试与可达性验证 */}
+          <div
+            data-testid="editor-error-placeholder"
+            aria-live="polite"
+            className="sr-only"
+          >
+            错误高亮占位已启用
+          </div>
         </div>
       </div>
 

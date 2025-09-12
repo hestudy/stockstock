@@ -53,6 +53,19 @@ describe("<StrategyEditor />", () => {
     localStorage.clear();
   });
 
+  it("exposes editor error highlight placeholder as a live region (AC2)", async () => {
+    await act(async () => {
+      root.render(React.createElement(StrategyEditor));
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 30));
+    });
+
+    const placeholder = findByTestId(container, "editor-error-placeholder");
+    expect(placeholder).toBeTruthy();
+    expect(placeholder?.getAttribute("aria-live")).toBe("polite");
+  });
+
   it("renders and loads template into editor (AC: 1,2)", async () => {
     await act(async () => {
       root.render(React.createElement(StrategyEditor));

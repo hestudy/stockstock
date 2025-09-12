@@ -61,4 +61,21 @@ describe("strategies service (localStorage)", () => {
     const res = await mod.submitBacktest(req);
     expect(res.ok).toBe(true);
   });
+
+  it("buildSubmitPayload carries metadata and requirements (AC3/AC4)", async () => {
+    const draft = makeDraft();
+    const req: BacktestSubmitRequest = { versionId: "uuid-1", draft };
+    const { buildSubmitPayload } = await import("../services/strategies");
+    const payload = buildSubmitPayload(req);
+
+    expect(payload.versionId).toBe("uuid-1");
+    // metadata propagated
+    expect(payload.metadata.name).toBe(draft.metadata.name);
+    expect(Array.isArray(payload.metadata.tags)).toBe(true);
+    // requirements propagated
+    expect(payload.requirements.packages.length).toBeGreaterThan(0);
+    expect(payload.requirements.packages[0].name).toBe("vectorbt");
+    // params propagated from source
+    expect(payload.params.a).toBe(1);
+  });
 });

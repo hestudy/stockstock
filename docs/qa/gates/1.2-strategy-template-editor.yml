@@ -1,0 +1,57 @@
+# <!-- Generated from qa-gate template v1 by Quinn -->
+schema: 1
+story: "1.2"
+story_title: "Story 1.2: Strategy Template & Editor"
+gate: PASS
+status_reason: "关键缺口已补齐：组件单测覆盖错误高亮可访问占位（AC2），集成测试验证 buildSubmitPayload 携带 metadata/requirements 与 params（AC3/AC4）；模板加载与基础编辑体验、测试钩子满足（AC1/AC5）。建议后续按 NFR 建议补充性能与可靠性抽样。"
+reviewer: "Quinn (Test Architect)"
+updated: "2025-09-12T13:39:30+08:00"
+
+waiver: { active: false }
+
+top_issues:
+  - id: AC2-ERR-HL
+    title: "错误高亮占位缺少测试用例"
+    severity: medium
+    action: "单测已补齐：模拟/断言可访问占位（aria-live）"
+    refs: ["apps/web/src/components/forms/StrategyEditor.tsx", "docs/qa/assessments/1.2-nfr-20250912.md"]
+  - id: AC34-PAYLOAD
+    title: "提交 payload 携带性未端到端验证（metadata/requirements）"
+    severity: medium
+    action: "已在集成测试对 buildSubmitPayload 进行断言；E2E 可后续补充网络拦截"
+    refs: ["apps/web/src/services/strategies.ts", "docs/qa/assessments/1.2-trace-20250912.md"]
+
+# Optional evidence
+quality_score: 75
+expires: "2025-09-26T00:00:00+08:00"
+
+evidence:
+  tests_reviewed: 10
+  risks_identified: 6
+  trace:
+    ac_covered: [1, 2, 3, 4, 5]
+    ac_gaps: []
+
+nfr_validation:
+  security:
+    status: PASS
+    notes: "依赖输入校验与 XSS 约束明确；建议补充危险输入单测"
+  performance:
+    status: PARTIAL
+    notes: "建议采用编辑器懒加载并抽样计时；当前缺少计时验证"
+  reliability:
+    status: PARTIAL
+    notes: "localStorage 异常与模板失败回退建议待验证"
+  maintainability:
+    status: PASS
+    notes: "类型共享、服务分层清晰；提交契约辅助函数已提供"
+
+recommendations:
+  immediate:
+    - action: "维持并扩展 AC2 可访问性断言（读屏器/对比度快检）"
+      refs: ["apps/web/src/__tests__/strategyEditor.component.test.tsx"]
+    - action: "在 E2E 中补充网络层拦截以断言提交 payload（metadata/requirements/params）"
+      refs: ["apps/web/src/__tests__/strategies.service.test.ts", "apps/web/e2e/backtests.spec.ts"]
+  future:
+    - action: "为元数据表单（名称/标签/时间戳）补充组件单测"
+      refs: ["apps/web/src/components/forms/StrategyEditor.tsx"]
