@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getSupabaseBrowserClient } from "../../services/supabaseClient";
 import { getFriendlyMessage } from "../../services/errors";
@@ -11,6 +11,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [checking, setChecking] = useState(true);
   const router = useRouter();
   const sp = useSearchParams();
 
@@ -18,6 +19,28 @@ export default function LoginPage() {
   const reasonText = useMemo(() => getFriendlyMessage(reason), [reason]);
 
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
+
+  // If already logged in, redirect to /health
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!mounted) return;
+        if (user) {
+          router.replace("/health");
+          return;
+        }
+      } finally {
+        if (mounted) setChecking(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [router, supabase]);
 
   const onLogin = useCallback(
     async (e: React.FormEvent) => {
@@ -67,6 +90,9 @@ export default function LoginPage() {
   return (
     <main style={{ padding: 24 }}>
       <h1>登录</h1>
+      {checking && (
+        <p style={{ color: "#6b7280", marginTop: 8 }}>正在检查登录状态…</p>
+      )}
       {reasonText && (
         <p
           style={{
@@ -109,3 +135,4 @@ export default function LoginPage() {
     </main>
   );
 }
+
