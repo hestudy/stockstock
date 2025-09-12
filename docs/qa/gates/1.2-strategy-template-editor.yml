@@ -5,7 +5,7 @@ story_title: "Story 1.2: Strategy Template & Editor"
 gate: PASS
 status_reason: "关键缺口已补齐：组件单测覆盖错误高亮可访问占位（AC2），集成测试验证 buildSubmitPayload 携带 metadata/requirements 与 params（AC3/AC4）；模板加载与基础编辑体验、测试钩子满足（AC1/AC5）。建议后续按 NFR 建议补充性能与可靠性抽样。"
 reviewer: "Quinn (Test Architect)"
-updated: "2025-09-12T13:39:30+08:00"
+updated: "2025-09-12T13:44:16+08:00"
 
 waiver: { active: false }
 
