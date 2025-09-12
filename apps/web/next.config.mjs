@@ -1,11 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactStrictMode: true,
+  reactStrictMode: false,
   async headers() {
     // Adaptive CSP: development allows 'unsafe-eval' and ws/wss for HMR; production remains strict
     const isDev = process.env.NODE_ENV !== 'production';
 
-    const scriptSrc = ["'self'", "'unsafe-inline'"];
+    const scriptSrc = ["'self'", "'unsafe-inline'", "blob:"];
     if (isDev) {
       scriptSrc.push("'unsafe-eval'");
     }
@@ -22,6 +22,7 @@ const nextConfig = {
       "img-src 'self' data: blob:",
       "font-src 'self'",
       `connect-src ${connectSrc.join(' ')}`,
+      "worker-src 'self' blob:",
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",

@@ -13,3 +13,6 @@ export type HealthSnapshot = {
   details?: Record<string, any>;
   ts: string;
 };
+
+// Re-export strategy-related shared types
+export * from "./strategy";
