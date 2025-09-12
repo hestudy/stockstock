@@ -1,7 +1,12 @@
 "use client";
 
 import React from "react";
-import type { StrategyDraft, StrategyMetadata, StrategyRequirements, StrategySource } from "@shared/strategy";
+import type {
+  StrategyDraft,
+  StrategyMetadata,
+  StrategyRequirements,
+  StrategySource,
+} from "@shared/strategy";
 import { loadDraft, saveDraft, clearDraft } from "../../services/strategies";
 import { meanReversionTemplate } from "./templates/mean-reversion.template";
 import CodeMirror from "@uiw/react-codemirror";
@@ -12,21 +17,20 @@ import { formatValidationError } from "../../services/errors";
 
 const STORAGE_KEY = "strategy-editor:draft";
 
-
 function nowIso(): string {
   return new Date().toISOString();
 }
 
 function toRequirementsText(req: StrategyRequirements): string {
-  return req.packages.map(p => (p.version ? `${p.name}@${p.version}` : p.name)).join("\n");
+  return req.packages.map((p) => (p.version ? `${p.name}@${p.version}` : p.name)).join("\n");
 }
 
 function fromRequirementsText(text: string): StrategyRequirements {
   const lines = text
     .split(/\r?\n/)
-    .map(l => l.trim())
+    .map((l) => l.trim())
     .filter(Boolean);
-  const packages = lines.map(line => {
+  const packages = lines.map((line) => {
     const [name, version] = line.split("@");
     return { name: name.trim(), version: version?.trim() };
   });
@@ -59,7 +63,7 @@ export default function StrategyEditor() {
       // 初始化模板
       onLoadTemplate();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function persist() {
@@ -73,7 +77,7 @@ export default function StrategyEditor() {
 
   function onLoadTemplate() {
     setSource(meanReversionTemplate.source);
-    setMetadata(m => ({
+    setMetadata((m) => ({
       ...m,
       name: meanReversionTemplate.name,
       description: meanReversionTemplate.description,
@@ -103,8 +107,11 @@ export default function StrategyEditor() {
   }
 
   function onChangeTagInput(v: string) {
-    const tags = v.split(",").map(t => t.trim()).filter(Boolean);
-    setMetadata(m => ({ ...m, tags }));
+    const tags = v
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    setMetadata((m) => ({ ...m, tags }));
   }
 
   function validateRequirements(text: string): string | null {
@@ -137,9 +144,19 @@ export default function StrategyEditor() {
     <div className="grid grid-cols-12 gap-4">
       <div className="col-span-8 space-y-3">
         <div className="flex items-center gap-2">
-          <button className="px-3 py-1 border rounded" onClick={onLoadTemplate}>从模板加载</button>
-          <button data-testid="reset-template" className="px-3 py-1 border rounded" onClick={onResetToTemplate}>重置为模板</button>
-          <button className="px-3 py-1 border rounded" onClick={onClearAll}>清空</button>
+          <button className="px-3 py-1 border rounded" onClick={onLoadTemplate}>
+            从模板加载
+          </button>
+          <button
+            data-testid="reset-template"
+            className="px-3 py-1 border rounded"
+            onClick={onResetToTemplate}
+          >
+            重置为模板
+          </button>
+          <button className="px-3 py-1 border rounded" onClick={onClearAll}>
+            清空
+          </button>
           {message && <span className="text-xs text-gray-500">{message}</span>}
         </div>
         <div data-testid="editor" className="border rounded">
@@ -149,14 +166,10 @@ export default function StrategyEditor() {
             value={source.content}
             extensions={[python()]}
             basicSetup={{ lineNumbers: true }}
-            onChange={(val: string) => setSource(s => ({ ...s, content: val }))}
+            onChange={(val: string) => setSource((s) => ({ ...s, content: val }))}
           />
           {/* 错误高亮占位（可访问 live region），用于 AC2 测试与可达性验证 */}
-          <div
-            data-testid="editor-error-placeholder"
-            aria-live="polite"
-            className="sr-only"
-          >
+          <div data-testid="editor-error-placeholder" aria-live="polite" className="sr-only">
             错误高亮占位已启用
           </div>
         </div>
@@ -165,16 +178,20 @@ export default function StrategyEditor() {
       <div className="col-span-4 space-y-4">
         <div className="border rounded p-3 space-y-2 dark:border-slate-700">
           <div className="text-sm font-medium dark:text-slate-100">元数据</div>
-          <label htmlFor="meta-name" className="block text-xs text-gray-600 dark:text-slate-300">名称</label>
+          <label htmlFor="meta-name" className="block text-xs text-gray-600 dark:text-slate-300">
+            名称
+          </label>
           <input
             id="meta-name"
             className="w-full border rounded p-2 dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
             value={metadata.name}
-            onChange={(e) => setMetadata(m => ({ ...m, name: e.target.value }))}
+            onChange={(e) => setMetadata((m) => ({ ...m, name: e.target.value }))}
             placeholder="策略名称"
             aria-label="策略名称"
           />
-          <label htmlFor="meta-tags" className="block text-xs text-gray-600 dark:text-slate-300">标签（使用英文逗号分隔）</label>
+          <label htmlFor="meta-tags" className="block text-xs text-gray-600 dark:text-slate-300">
+            标签（使用英文逗号分隔）
+          </label>
           <input
             id="meta-tags"
             className="w-full border rounded p-2 dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -183,27 +200,33 @@ export default function StrategyEditor() {
             placeholder="e.g. mean-reversion, sample"
             aria-label="策略标签"
           />
-          <label htmlFor="meta-desc" className="block text-xs text-gray-600 dark:text-slate-300">描述</label>
+          <label htmlFor="meta-desc" className="block text-xs text-gray-600 dark:text-slate-300">
+            描述
+          </label>
           <textarea
             id="meta-desc"
             className="w-full border rounded p-2 dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
             value={metadata.description ?? ""}
-            onChange={(e) => setMetadata(m => ({ ...m, description: e.target.value }))}
+            onChange={(e) => setMetadata((m) => ({ ...m, description: e.target.value }))}
             placeholder="策略描述"
             aria-label="策略描述"
           />
-          <label htmlFor="meta-ts" className="block text-xs text-gray-600 dark:text-slate-300">版本时间戳</label>
+          <label htmlFor="meta-ts" className="block text-xs text-gray-600 dark:text-slate-300">
+            版本时间戳
+          </label>
           <input
             id="meta-ts"
             className="w-full border rounded p-2 dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
             value={metadata.versionTimestamp}
-            onChange={(e) => setMetadata(m => ({ ...m, versionTimestamp: e.target.value }))}
+            onChange={(e) => setMetadata((m) => ({ ...m, versionTimestamp: e.target.value }))}
             aria-label="版本时间戳"
           />
         </div>
 
         <div className="border rounded p-3 space-y-2 dark:border-slate-700">
-          <label htmlFor="requirements" className="text-sm font-medium dark:text-slate-100">依赖（requirements）</label>
+          <label htmlFor="requirements" className="text-sm font-medium dark:text-slate-100">
+            依赖（requirements）
+          </label>
           <textarea
             id="requirements"
             data-testid="requirements-input"
@@ -217,8 +240,19 @@ export default function StrategyEditor() {
             aria-invalid={!!reqError}
             aria-describedby={reqError ? "requirements-error" : undefined}
           />
-          <div aria-live="polite" className="sr-only" data-testid="requirements-error-live">{reqError ?? ""}</div>
-          {reqError && <div id="requirements-error" data-testid="requirements-error" role="alert" className="text-xs text-red-600 dark:text-red-400">{reqError}</div>}
+          <div aria-live="polite" className="sr-only" data-testid="requirements-error-live">
+            {reqError ?? ""}
+          </div>
+          {reqError && (
+            <div
+              id="requirements-error"
+              data-testid="requirements-error"
+              role="alert"
+              className="text-xs text-red-600 dark:text-red-400"
+            >
+              {reqError}
+            </div>
+          )}
         </div>
       </div>
     </div>

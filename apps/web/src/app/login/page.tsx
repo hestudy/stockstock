@@ -65,7 +65,7 @@ export default function LoginPage() {
         setLoading(false);
       }
     },
-    [email, password, router, supabase]
+    [email, password, router, supabase],
   );
 
   const onSignup = useCallback(async () => {
@@ -90,9 +90,7 @@ export default function LoginPage() {
   return (
     <main style={{ padding: 24 }}>
       <h1>登录</h1>
-      {checking && (
-        <p style={{ color: "#6b7280", marginTop: 8 }}>正在检查登录状态…</p>
-      )}
+      {checking && <p style={{ color: "#6b7280", marginTop: 8 }}>正在检查登录状态…</p>}
       {reasonText && (
         <p
           style={{
@@ -104,10 +102,7 @@ export default function LoginPage() {
           {reasonText}
         </p>
       )}
-      <form
-        onSubmit={onLogin}
-        style={{ display: "grid", gap: 12, maxWidth: 360 }}
-      >
+      <form onSubmit={onLogin} style={{ display: "grid", gap: 12, maxWidth: 360 }}>
         <input
           placeholder="email"
           type="email"
@@ -135,4 +130,3 @@ export default function LoginPage() {
     </main>
   );
 }
-

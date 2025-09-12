@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-import fs from 'node:fs/promises';
-import path from 'node:path';
+import fs from "node:fs/promises";
+import path from "node:path";
 
-const BASE_URL = process.env.E2E_BASE_URL || 'http://localhost:3000';
-const TARGET = new URL('/api/v1/health', BASE_URL).toString();
-const OUT_DIR = path.join(process.cwd(), 'apps/web/perf');
-const OUT_FILE = path.join(OUT_DIR, 'baseline.json');
+const BASE_URL = process.env.E2E_BASE_URL || "http://localhost:3000";
+const TARGET = new URL("/api/v1/health", BASE_URL).toString();
+const OUT_DIR = path.join(process.cwd(), "apps/web/perf");
+const OUT_FILE = path.join(OUT_DIR, "baseline.json");
 const SAMPLES = Number(process.env.PERF_SAMPLES || 30);
 const SLEEP_MS = Number(process.env.PERF_SLEEP_MS || 50);
 const WARMUP = Number(process.env.PERF_WARMUP || 0);
@@ -16,16 +16,18 @@ function percentile(sorted, p) {
   return sorted[Math.max(0, Math.min(idx, sorted.length - 1))];
 }
 
-async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+async function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 async function measureOnce() {
   const t0 = performance.now();
-  const res = await fetch(TARGET, { method: 'GET' });
+  const res = await fetch(TARGET, { method: "GET" });
   const t1 = performance.now();
   const ms = t1 - t0;
   const ok = res.ok;
   const status = res.status;
-  const handlerHeader = res.headers.get('x-handler-duration');
+  const handlerHeader = res.headers.get("x-handler-duration");
   const handlerMs = handlerHeader ? Number(handlerHeader) : null;
   return { ms, handlerMs, ok, status };
 }
@@ -34,7 +36,9 @@ async function main() {
   const results = [];
   // Warmup phase to avoid cold-start noise (ignored results)
   for (let i = 0; i < WARMUP; i++) {
-    try { await measureOnce(); } catch {}
+    try {
+      await measureOnce();
+    } catch {}
     if (SLEEP_MS > 0) await sleep(SLEEP_MS);
   }
   for (let i = 0; i < SAMPLES; i++) {
@@ -49,15 +53,21 @@ async function main() {
   }
 
   // Only compute percentiles on successful samples to avoid mixing 429/5xx noise
-  const okLatencies = results.filter(r => r.ok && Number.isFinite(r.ms)).map(r => r.ms).sort((a, b) => a - b);
-  const okHandler = results.filter(r => r.ok && Number.isFinite(r.handlerMs ?? NaN)).map(r => r.handlerMs).sort((a, b) => a - b);
+  const okLatencies = results
+    .filter((r) => r.ok && Number.isFinite(r.ms))
+    .map((r) => r.ms)
+    .sort((a, b) => a - b);
+  const okHandler = results
+    .filter((r) => r.ok && Number.isFinite(r.handlerMs ?? NaN))
+    .map((r) => r.handlerMs)
+    .sort((a, b) => a - b);
   const p50 = percentile(okLatencies, 50);
   const p95 = percentile(okLatencies, 95);
   const p99 = percentile(okLatencies, 99);
   const hp50 = percentile(okHandler, 50);
   const hp95 = percentile(okHandler, 95);
   const hp99 = percentile(okHandler, 99);
-  const failures = results.filter(r => !r.ok).length;
+  const failures = results.filter((r) => !r.ok).length;
   const success = results.length - failures;
 
   const payload = {
@@ -86,11 +96,11 @@ async function main() {
   };
 
   await fs.mkdir(OUT_DIR, { recursive: true });
-  await fs.writeFile(OUT_FILE, JSON.stringify(payload, null, 2), 'utf-8');
+  await fs.writeFile(OUT_FILE, JSON.stringify(payload, null, 2), "utf-8");
   console.log(`Perf baseline written to ${OUT_FILE}`);
 }
 
 main().catch((err) => {
-  console.error('perf-baseline failed:', err);
+  console.error("perf-baseline failed:", err);
   process.exit(1);
 });

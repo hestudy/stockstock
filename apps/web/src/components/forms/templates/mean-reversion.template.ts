@@ -11,10 +11,7 @@ export const meanReversionTemplate: {
   description: "A minimal mean reversion strategy template with example params.",
   tags: ["mean-reversion", "sample"],
   requirements: {
-    packages: [
-      { name: "vectorbt", version: ">=0.25" },
-      { name: "pandas" },
-    ],
+    packages: [{ name: "vectorbt", version: ">=0.25" }, { name: "pandas" }],
   },
   source: {
     language: "python",

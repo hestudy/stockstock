@@ -110,7 +110,9 @@ describe("<StrategyEditor />", () => {
     });
 
     // requery after state update
-    textarea = (findByTestId(container, "editor") as HTMLElement).querySelector("textarea") as HTMLTextAreaElement;
+    textarea = (findByTestId(container, "editor") as HTMLElement).querySelector(
+      "textarea",
+    ) as HTMLTextAreaElement;
     expect(textarea.value).toBe(original);
   });
 
@@ -122,7 +124,9 @@ describe("<StrategyEditor />", () => {
       await new Promise((r) => setTimeout(r, 30));
     });
 
-    const reqBox = document.querySelector('[data-testid="requirements-input"]') as HTMLTextAreaElement;
+    const reqBox = document.querySelector(
+      '[data-testid="requirements-input"]',
+    ) as HTMLTextAreaElement;
     expect(reqBox).toBeTruthy();
 
     await act(async () => {

@@ -1,13 +1,23 @@
 /* @vitest-environment jsdom */
 import { describe, it, expect, beforeEach } from "vitest";
-import { saveDraft, loadDraft, clearDraft, type BacktestSubmitRequest } from "../services/strategies";
+import {
+  saveDraft,
+  loadDraft,
+  clearDraft,
+  type BacktestSubmitRequest,
+} from "../services/strategies";
 import type { StrategyDraft } from "@shared/strategy";
 
 const KEY = "strategy-editor:draft";
 
 function makeDraft(): StrategyDraft {
   return {
-    metadata: { name: "t", tags: ["a"], description: "d", versionTimestamp: new Date().toISOString() },
+    metadata: {
+      name: "t",
+      tags: ["a"],
+      description: "d",
+      versionTimestamp: new Date().toISOString(),
+    },
     requirements: { packages: [{ name: "vectorbt", version: ">=0.25" }] },
     source: { language: "python", content: "print('hi')", params: { a: 1 } },
   };
@@ -18,8 +28,7 @@ describe("strategies service (localStorage)", () => {
     // 兜底：某些环境未提供 localStorage，则注入一个简单 mock
     if (typeof window !== "undefined" && !window.localStorage) {
       let store: Record<string, string> = {};
-      // @ts-ignore
-      window.localStorage = {
+      const mockStorage: Storage = {
         getItem: (k: string) => (k in store ? store[k] : null),
         setItem: (k: string, v: string) => {
           store[k] = String(v);
@@ -34,7 +43,8 @@ describe("strategies service (localStorage)", () => {
         get length() {
           return Object.keys(store).length;
         },
-      } as unknown as Storage;
+      } as Storage;
+      Object.defineProperty(window, "localStorage", { value: mockStorage, configurable: true });
     }
     localStorage.clear();
   });

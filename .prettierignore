@@ -1,0 +1,11 @@
+node_modules/
+**/node_modules/
+**/.next/
+**/dist/
+**/coverage/
+.next/
+dist/
+coverage/
+# build artifacts
+pnpm-lock.yaml
+docs/**

@@ -6,7 +6,7 @@ export function saveDraft(key: string, draft: StrategyDraft) {
   try {
     if (typeof window === "undefined") return;
     localStorage.setItem(key, JSON.stringify(draft));
-  } catch (e) {
+  } catch (_e) {
     // no-op: localStorage 可能不可用
   }
 }
@@ -31,19 +31,6 @@ export function clearDraft(key: string) {
   }
 }
 
-export type BacktestSubmitRequest = {
-  versionId: string;
-  draft: StrategyDraft;
-};
-
-export async function submitBacktest(_req: BacktestSubmitRequest): Promise<{ ok: boolean }>
-{
-  // 本故事占位：仅返回 mock 结果；后续 1.3 接入实际 API
-  await new Promise(r => setTimeout(r, 200));
-  return { ok: true };
-}
-
-// 为 QA 端到端/集成校验提供的辅助：从当前占位请求结构生成后续实际提交所需的 payload
 export type SubmitPayload = {
   versionId: string;
   params: Record<string, any>;
@@ -51,11 +38,53 @@ export type SubmitPayload = {
   requirements: StrategyDraft["requirements"];
 };
 
-export function buildSubmitPayload(req: BacktestSubmitRequest): SubmitPayload {
+function isNonEmptyString(v: unknown): v is string {
+  return typeof v === "string" && v.trim().length > 0;
+}
+
+function isRecord(v: unknown): v is Record<string, any> {
+  return !!v && typeof v === "object" && !Array.isArray(v);
+}
+
+// 与现有单测兼容的请求类型与占位 submitBacktest（后续故事切换到 services/backtests.ts 实现）
+export type BacktestSubmitRequest = {
+  versionId: string;
+  draft: StrategyDraft;
+};
+
+export async function submitBacktest(_req: BacktestSubmitRequest): Promise<{ ok: boolean }> {
+  await new Promise((r) => setTimeout(r, 50));
+  return { ok: true };
+}
+
+// 重载：既支持 (req) 也支持 (draft, versionId)
+export function buildSubmitPayload(req: BacktestSubmitRequest): SubmitPayload;
+export function buildSubmitPayload(draft: StrategyDraft, versionId: string): SubmitPayload;
+export function buildSubmitPayload(
+  a: StrategyDraft | BacktestSubmitRequest,
+  b?: string,
+): SubmitPayload {
+  let draft: StrategyDraft;
+  let versionId: string;
+  if (typeof b === "string") {
+    draft = a as StrategyDraft;
+    versionId = b;
+  } else {
+    const req = a as BacktestSubmitRequest;
+    draft = req?.draft as StrategyDraft;
+    versionId = req?.versionId as string;
+  }
+  if (!isNonEmptyString(versionId)) {
+    throw new Error("versionId 无效");
+  }
+  const params = (draft as StrategyDraft)?.source?.params;
+  if (!isRecord(params)) {
+    throw new Error("params 结构无效");
+  }
   return {
-    versionId: req.versionId,
-    params: req.draft.source.params,
-    metadata: req.draft.metadata,
-    requirements: req.draft.requirements,
+    versionId,
+    params,
+    metadata: draft.metadata,
+    requirements: draft.requirements,
   };
 }

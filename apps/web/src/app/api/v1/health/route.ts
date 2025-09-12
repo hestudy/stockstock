@@ -27,7 +27,7 @@ export async function GET(request: Request) {
       if (bucket.count > LIMIT) {
         return NextResponse.json(
           { error: { message: "请求过于频繁，请稍后再试。", reason: "rate_limited" } },
-          { status: 429 }
+          { status: 429 },
         );
       }
     }

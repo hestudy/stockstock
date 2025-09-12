@@ -16,3 +16,5 @@ export type HealthSnapshot = {
 
 // Re-export strategy-related shared types
 export * from "./strategy";
+// Re-export backtest-related shared types
+export * from "./backtest";
