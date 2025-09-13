@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 import { describe, it, expect } from "vitest";
-import { mapErrorToMessage } from "../app/(dashboard)/backtests/page";
+import { mapErrorToMessage } from "../utils/errorMapping";
 
 describe("mapErrorToMessage", () => {
   it("maps 429/rate limited to friendly message", () => {

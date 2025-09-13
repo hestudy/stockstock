@@ -16,10 +16,21 @@ export type BacktestStatusResponse = {
   status: JobStatus;
   startedAt?: string;
   finishedAt?: string;
+  progress?: number; // 0-100
+  retries?: number;
 };
 
 export type ResultSummary = {
   id: string;
   metrics: Record<string, number>;
   preview?: string;
+  equity?: EquityPoint[];
+};
+
+export type EquityPoint = { t: number; v: number };
+
+export type ExportPayload = {
+  id: string;
+  metrics: Record<string, number>;
+  equity?: EquityPoint[];
 };

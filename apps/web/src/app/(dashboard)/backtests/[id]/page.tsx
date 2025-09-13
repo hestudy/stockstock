@@ -1,0 +1,157 @@
+"use client";
+
+import React from "react";
+import dynamic from "next/dynamic";
+import { useParams, useRouter } from "next/navigation";
+import { getBacktestStatus, getBacktestResult } from "../../../../services/backtests";
+import type { ResultSummary, BacktestStatusResponse } from "@shared/backtest";
+import type { Props as EquityCurveProps } from "../../../../components/charts/EquityCurve";
+
+const EquityCurve = dynamic<EquityCurveProps>(
+  () => import("../../../../components/charts/EquityCurve"),
+  {
+    ssr: false,
+    loading: () => <div className="text-sm text-gray-500">正在加载曲线组件…</div>,
+  },
+);
+
+function usePolling(id: string) {
+  const [status, setStatus] = React.useState<BacktestStatusResponse | null>(null);
+  const [result, setResult] = React.useState<ResultSummary | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let mounted = true;
+    let timer: any;
+
+    async function tick() {
+      try {
+        const s = await getBacktestStatus(id);
+        if (!mounted) return;
+        setStatus(s);
+        if (s.status === "succeeded" || (s as any).status === "completed") {
+          const r = await getBacktestResult(id);
+          if (!mounted) return;
+          setResult(r);
+        }
+      } catch (e: any) {
+        if (!mounted) return;
+        const msg = typeof e?.message === "string" ? e.message : "获取状态失败";
+        setError(msg);
+      } finally {
+        if (mounted) timer = setTimeout(tick, 1500);
+      }
+    }
+
+    tick();
+    return () => {
+      mounted = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [id]);
+
+  return { status, result, error };
+}
+
+export default function BacktestDetailPage() {
+  const params = useParams();
+  const router = useRouter();
+  const id = String(params?.id ?? "");
+  const { status, result, error } = usePolling(id);
+
+  const hasSummary = !!result?.metrics && Object.keys(result.metrics).length > 0;
+
+  return (
+    <main className="p-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-lg font-semibold">回测详情</h1>
+        <button
+          className="px-3 py-1 border rounded"
+          onClick={() => router.push("/backtests")}
+          aria-label="返回列表"
+        >
+          返回
+        </button>
+      </div>
+
+      <section role="status" aria-live="polite" className="space-y-2">
+        <div className="text-sm text-gray-600">
+          状态：{status?.status ?? "加载中"}
+          {typeof (status as any)?.progress === "number" && (
+            <span className="ml-2">进度：{(status as any).progress}%</span>
+          )}
+        </div>
+        {error && (
+          <div className="text-sm text-red-600">
+            {error} <button className="underline" onClick={() => location.reload()}>重试</button>
+          </div>
+        )}
+      </section>
+
+      <section aria-live="polite" aria-label="结果摘要" role="status">
+        <div data-testid="summary-cards">
+          {!hasSummary ? (
+            <div className="animate-pulse grid grid-cols-3 gap-3">
+              <div className="h-16 bg-gray-200 rounded" />
+              <div className="h-16 bg-gray-200 rounded" />
+              <div className="h-16 bg-gray-200 rounded" />
+            </div>
+          ) : (
+            <SummaryCards metrics={result!.metrics} id={id} />
+          )}
+        </div>
+      </section>
+
+      <section>
+        <React.Suspense fallback={<div className="h-48 bg-gray-100 rounded" />}>
+          <EquityCurve data={(result as any)?.equity ?? []} />
+        </React.Suspense>
+      </section>
+    </main>
+  );
+}
+
+function SummaryCards({ metrics, id }: { metrics: Record<string, number>; id: string }) {
+  const items = [
+    { label: "收益", key: "return", fmt: (v: number) => `${(v * 100).toFixed(2)}%` },
+    { label: "回撤", key: "drawdown", fmt: (v: number) => `${(v * 100).toFixed(2)}%` },
+    { label: "夏普", key: "sharpe", fmt: (v: number) => v.toFixed(2) },
+  ];
+
+  async function onExport(kind: "csv" | "json") {
+    const mod = await import("../../../../utils/export");
+    const payload = {
+      id,
+      metrics,
+      equity: (window as any).__equity__ ?? [],
+    };
+    if (kind === "csv") {
+      const res = mod.toCSV(payload);
+      if (res.ok) mod.downloadText(res.text!, `backtest-${id}.csv`);
+      else alert(res.error || "导出失败");
+    } else {
+      const res = mod.toJSON(payload);
+      if (res.ok) mod.downloadText(res.text!, `backtest-${id}.json`);
+      else alert(res.error || "导出失败");
+    }
+  }
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      {items.map((it) => (
+        <div key={it.key} className="border rounded p-3">
+          <div className="text-xs text-gray-500">{it.label}</div>
+          <div className="text-lg font-semibold">{it.fmt(metrics[it.key] ?? 0)}</div>
+        </div>
+      ))}
+      <div className="col-span-full flex gap-2">
+        <button className="px-2 py-1 border rounded" aria-label="导出CSV" onClick={() => onExport("csv")}>
+          导出 CSV
+        </button>
+        <button className="px-2 py-1 border rounded" aria-label="导出JSON" onClick={() => onExport("json")}>
+          导出 JSON
+        </button>
+      </div>
+    </div>
+  );
+}

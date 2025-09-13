@@ -1,12 +1,20 @@
 "use client";
 
-import React from "react";
+import React, { Suspense } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getSupabaseBrowserClient } from "../../services/supabaseClient";
 import { getFriendlyMessage } from "../../services/errors";
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<main style={{ padding: 24 }}>正在加载…</main>}>
+      <LoginPageInner />
+    </Suspense>
+  );
+}
+
+function LoginPageInner() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);

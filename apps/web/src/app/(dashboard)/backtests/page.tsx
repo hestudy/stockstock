@@ -6,17 +6,7 @@ import { loadDraft, buildSubmitPayload } from "../../../services/strategies";
 import { submitBacktest } from "../../../services/backtests";
 import { useRouter } from "next/navigation";
 import { jobsStore } from "../../../services/jobsStore";
-
-export function mapErrorToMessage(raw: string): string {
-  const lower = (raw || "").toLowerCase();
-  if (lower.includes("429") || lower.includes("rate") || lower.includes("too many")) {
-    return "请求过于频繁，请稍后重试。";
-  }
-  if (lower.includes("timeout") || lower.includes("timed out")) {
-    return "请求超时，请检查网络后重试。";
-  }
-  return raw || "出现了一点问题，请稍后再试。";
-}
+import { mapErrorToMessage } from "../../../utils/errorMapping";
 
 export default function BacktestsPage() {
   const router = useRouter();

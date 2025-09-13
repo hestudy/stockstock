@@ -1,5 +1,10 @@
 import { api } from "./apiClient";
-import type { BacktestSubmitRequest, BacktestSubmitResponse } from "@shared/backtest";
+import type {
+  BacktestSubmitRequest,
+  BacktestSubmitResponse,
+  BacktestStatusResponse,
+  ResultSummary,
+} from "@shared/backtest";
 
 function uuidv4(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -21,4 +26,12 @@ export async function submitBacktest(
     clientRequestId: payload.clientRequestId ?? uuidv4(),
   };
   return api.post<BacktestSubmitResponse>("/backtests", body);
+}
+
+export async function getBacktestStatus(id: string): Promise<BacktestStatusResponse> {
+  return api.get<BacktestStatusResponse>(`/backtests/${encodeURIComponent(id)}/status`);
+}
+
+export async function getBacktestResult(id: string): Promise<ResultSummary> {
+  return api.get<ResultSummary>(`/backtests/${encodeURIComponent(id)}/result`);
 }
