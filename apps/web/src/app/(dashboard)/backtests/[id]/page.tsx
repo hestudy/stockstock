@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { getBacktestStatus, getBacktestResult } from "../../../../services/backtests";
 import type { ResultSummary, BacktestStatusResponse } from "@shared/backtest";
 import type { Props as EquityCurveProps } from "../../../../components/charts/EquityCurve";
+import { mapErrorToMessage } from "../../../../utils/errorMapping";
 
 const EquityCurve = dynamic<EquityCurveProps>(
   () => import("../../../../components/charts/EquityCurve"),
@@ -19,6 +20,7 @@ function usePolling(id: string) {
   const [status, setStatus] = React.useState<BacktestStatusResponse | null>(null);
   const [result, setResult] = React.useState<ResultSummary | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const stoppedRef = React.useRef(false);
 
   React.useEffect(() => {
     let mounted = true;
@@ -29,17 +31,24 @@ function usePolling(id: string) {
         const s = await getBacktestStatus(id);
         if (!mounted) return;
         setStatus(s);
+        if (s.status === "failed") {
+          setError("作业失败，请检查参数或稍后重试。");
+          stoppedRef.current = true; // 失败后停止轮询
+          return;
+        }
         if (s.status === "succeeded" || (s as any).status === "completed") {
           const r = await getBacktestResult(id);
           if (!mounted) return;
           setResult(r);
+          stoppedRef.current = true; // 成功后停止轮询
+          return;
         }
       } catch (e: any) {
         if (!mounted) return;
-        const msg = typeof e?.message === "string" ? e.message : "获取状态失败";
-        setError(msg);
+        const raw = typeof e?.message === "string" ? e.message : "获取状态失败";
+        setError(mapErrorToMessage(raw));
       } finally {
-        if (mounted) timer = setTimeout(tick, 1500);
+        if (mounted && !stoppedRef.current) timer = setTimeout(tick, 1500);
       }
     }
 
@@ -82,8 +91,14 @@ export default function BacktestDetailPage() {
           )}
         </div>
         {error && (
-          <div className="text-sm text-red-600">
-            {error} <button className="underline" onClick={() => location.reload()}>重试</button>
+          <div className="text-sm text-red-600 flex items-center gap-2">
+            <span>{error}</span>
+            <button className="underline" onClick={() => location.reload()} aria-label="重试加载">
+              重试
+            </button>
+            <button className="underline" onClick={() => router.push("/backtests")} aria-label="返回列表">
+              返回列表
+            </button>
           </div>
         )}
       </section>
