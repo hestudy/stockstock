@@ -46,4 +46,21 @@ describe("services/backtests.submitBacktest", () => {
       /Too Many Requests|HTTP 429/,
     );
   });
+
+  it("propagates apiClient error for HTTP 500 when no json body", async () => {
+    (g.fetch as any).mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: () => Promise.reject(new Error("no json")),
+    });
+    await expect(submitBacktest({ versionId: "v1", params: {} })).rejects.toThrow(/HTTP 500/);
+  });
+
+  it("propagates timeout/network rejection errors", async () => {
+    (g.fetch as any).mockRejectedValue(new Error("Request timed out"));
+    await expect(submitBacktest({ versionId: "v1", params: {} })).rejects.toThrow(
+      /timed out|timeout/i,
+    );
+  });
 });
+

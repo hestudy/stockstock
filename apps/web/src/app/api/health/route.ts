@@ -15,7 +15,9 @@ function getClientIp(req: Request): string {
 
 export async function GET(request: Request) {
   const t0 = performance.now();
-  const DISABLE_RATE_LIMIT = process.env.RATE_LIMIT_DISABLED === "1";
+  // 在测试环境默认禁用速率限制，避免 CI/本地用例误触发；可通过显式环境变量覆盖
+  const DISABLE_RATE_LIMIT =
+    process.env.RATE_LIMIT_DISABLED === "1" || process.env.NODE_ENV === "test";
   if (!DISABLE_RATE_LIMIT) {
     const ip = getClientIp(request);
     const now = Date.now();

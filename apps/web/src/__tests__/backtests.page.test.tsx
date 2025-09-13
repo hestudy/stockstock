@@ -48,4 +48,12 @@ describe("(dashboard)/backtests/page submit button", () => {
     const html = ReactDOMServer.renderToString(React.createElement(BacktestsPage));
     expect(html).toContain("策略编辑器");
   });
+
+  it("SSR includes a11y attributes aria-disabled and aria-live=polite", () => {
+    const html = ReactDOMServer.renderToString(React.createElement(BacktestsPage));
+    // 按组件实现，初始 submitting=false，应包含 aria-disabled="false"
+    expect(html).toContain('aria-disabled="false"');
+    // 页面包含用于提示信息的 live region
+    expect(html).toContain('aria-live="polite"');
+  });
 });
