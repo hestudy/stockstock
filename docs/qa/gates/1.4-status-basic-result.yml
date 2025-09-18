@@ -5,7 +5,7 @@ story_title: "Status & Basic Result"
 gate: "CONCERNS"  # PASS|CONCERNS|FAIL|WAIVED
 status_reason: "测试设计已完成（docs/qa/assessments/1.4-test-design.md），覆盖单测/集成/E2E 与 2s 目标；实现与测试落地后复审 Gate。"
 reviewer: "Quinn (Test Architect)"
-updated: "2025-09-13T13:07:49+08:00"
+updated: "2025-09-18T18:24:34+08:00"
 
 waiver: { active: false }
 
@@ -20,3 +20,18 @@ risk_summary:
       - "完成状态/结果接口集成测试（成功/429/5xx/网络错误）并补充页面轮询与 2s 断言"
     monitor:
       - "曲线数据量较大场景下的懒加载与降级策略（摘要优先渲染）"
+
+nfr_validation:
+  _assessed: [security, performance, reliability, maintainability]
+  security:
+    status: PASS
+    notes: "已实现按用户+路径的速率限制与 `id` 参数校验；JWT 鉴权与 ownerId 过滤已落地"
+  performance:
+    status: PASS
+    notes: "2 秒首屏摘要目标有 E2E 覆盖；采用摘要先行+图表懒加载策略"
+  reliability:
+    status: PASS
+    notes: "统一错误映射、轮询就绪、空态与重试路径具备"
+  maintainability:
+    status: CONCERNS
+    notes: "详情页错误/空态与摘要区 A11y 的页面级断言可进一步增强；导出失败与图表交互单测已覆盖"
