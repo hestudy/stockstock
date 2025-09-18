@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import dynamic from "next/dynamic";
 import type {
   StrategyDraft,
   StrategyMetadata,
@@ -9,7 +10,14 @@ import type {
 } from "@shared/strategy";
 import { loadDraft, saveDraft, clearDraft } from "../../services/strategies";
 import { meanReversionTemplate } from "./templates/mean-reversion.template";
-import CodeMirror from "@uiw/react-codemirror";
+const CodeMirror = dynamic(() => import("@uiw/react-codemirror"), {
+  ssr: false,
+  loading: () => (
+    <div data-testid="editor-loading" className="p-3 text-sm text-gray-500">
+      正在加载编辑器…
+    </div>
+  ),
+});
 import { python } from "@codemirror/lang-python";
 import { formatValidationError } from "../../services/errors";
 

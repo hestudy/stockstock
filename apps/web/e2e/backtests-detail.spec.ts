@@ -30,6 +30,19 @@ test.describe("Backtests Detail — Summary within 2 seconds", () => {
       });
     });
 
+    // 鉴权绕过（仅本用例）：设置 cookie 以跳过 (dashboard) 布局的 supabase 校验
+    await page.context().addCookies([
+      {
+        name: "e2e_auth_bypass",
+        value: "1",
+        domain: "localhost",
+        path: "/",
+        httpOnly: false,
+        secure: false,
+        sameSite: "Lax",
+      },
+    ]);
+
     const start = Date.now();
     await page.goto(`/backtests/${jobId}`);
 
@@ -44,3 +57,4 @@ test.describe("Backtests Detail — Summary within 2 seconds", () => {
     console.log(`Summary visible in ${elapsed}ms`);
   });
 });
+
