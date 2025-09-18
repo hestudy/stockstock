@@ -1,14 +1,25 @@
 import { NextResponse } from "next/server";
 import type { ResultSummary } from "@shared/backtest";
 import { getOwner } from "../../../../_lib/auth";
+import { rateLimit } from "../../../../_lib/rateLimit";
+import { isValidBacktestId } from "../../../../_lib/validate";
 
-export async function GET(_req: Request, ctx: { params: { id: string } }) {
+export async function GET(req: Request, ctx: { params: { id: string } }) {
   const { id } = ctx.params;
+  if (!isValidBacktestId(id)) {
+    return NextResponse.json({ error: { message: "INVALID_ID" } }, { status: 400 });
+  }
+  let ownerId: string | null = null;
   try {
-    // 鉴权：解析 Supabase 会话并获取 ownerId（此处不直接使用，仅校验会话有效性）
-    await getOwner();
+    const owner = await getOwner();
+    ownerId = owner.ownerId;
   } catch {
     return NextResponse.json({ error: { message: "UNAUTHENTICATED" } }, { status: 401 });
+  }
+  const path = new URL(req.url).pathname;
+  const rl = rateLimit(`${ownerId}:${path}:GET`, { limit: 60, windowMs: 60_000 });
+  if (!rl.allowed) {
+    return NextResponse.json({ error: { message: "RATE_LIMITED" } }, { status: 429 });
   }
   const now = Date.now();
   // 简单稳定的模拟数据（便于 2s 首屏断言与联调）

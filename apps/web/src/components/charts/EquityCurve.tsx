@@ -14,12 +14,8 @@ export default function EquityCurve({ data = [], className }: Props) {
     (window as any).__equity__ = data ?? [];
   }, [data]);
 
-  if (!data.length) {
-    return <div className={className}>暂无曲线数据</div>;
-  }
-
-  // 视窗（索引范围）与交互状态
-  const [view, setView] = React.useState<{ start: number; end: number }>({ start: 0, end: data.length - 1 });
+  // 视窗（索引范围）与交互状态（Hooks 必须无条件调用）
+  const [view, setView] = React.useState<{ start: number; end: number }>({ start: 0, end: Math.max(0, data.length - 1) });
   const [hover, setHover] = React.useState<{ x: number; y: number; p?: EquityPoint } | null>(null);
   const [dragging, setDragging] = React.useState<{ startX: number; startView: { start: number; end: number } } | null>(null);
 
@@ -27,16 +23,23 @@ export default function EquityCurve({ data = [], className }: Props) {
   const width = 600;
   const height = 200;
 
-  const visible = React.useMemo(() => data.slice(view.start, view.end + 1), [data, view]);
-  const xs = visible.map((p) => p.t);
-  const ys = visible.map((p) => p.v);
+  const visible = React.useMemo(() => {
+    if (!data || data.length === 0) return [] as EquityPoint[];
+    const start = Math.max(0, Math.min(view.start, data.length - 1));
+    const end = Math.max(start, Math.min(view.end, data.length - 1));
+    return data.slice(start, end + 1);
+  }, [data, view]);
+
+  const hasData = visible.length > 0;
+  const xs = hasData ? visible.map((p) => p.t) : [0, 1];
+  const ys = hasData ? visible.map((p) => p.v) : [0, 1];
   const minX = Math.min(...xs);
   const maxX = Math.max(...xs);
   const minY = Math.min(...ys);
   const maxY = Math.max(...ys);
   const scaleX = (x: number) => pad + ((x - minX) / (maxX - minX || 1)) * (width - pad * 2);
   const scaleY = (y: number) => height - pad - ((y - minY) / (maxY - minY || 1)) * (height - pad * 2);
-  const d = visible.map((p, i) => `${i === 0 ? "M" : "L"}${scaleX(p.t)},${scaleY(p.v)}`).join(" ");
+  const d = hasData ? visible.map((p, i) => `${i === 0 ? "M" : "L"}${scaleX(p.t)},${scaleY(p.v)}`).join(" ") : "";
 
   // 根据鼠标位置找到最近点
   function nearestPoint(clientX: number, rectLeft: number): EquityPoint | undefined {
@@ -98,6 +101,10 @@ export default function EquityCurve({ data = [], className }: Props) {
   function onMouseLeave() {
     setDragging(null);
     setHover(null);
+  }
+
+  if (!hasData) {
+    return <div className={className}>暂无曲线数据</div>;
   }
 
   return (

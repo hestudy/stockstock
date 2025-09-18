@@ -36,4 +36,30 @@ describe("export utils", () => {
   it("downloadText should not throw in jsdom", () => {
     expect(() => downloadText("hello", "a.txt")).not.toThrow();
   });
+
+  it("toCSV should return error when metrics accessor throws", () => {
+    const metrics: any = {};
+    Object.defineProperty(metrics, "bad", {
+      enumerable: true,
+      get() {
+        throw new Error("boom");
+      },
+    });
+    const res = toCSV({ id: "job-x", metrics });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error).toContain("boom");
+    }
+  });
+
+  it("toJSON should return error when payload is circular", () => {
+    const payload: any = { id: "job-y", metrics: {} };
+    payload.self = payload; // circular
+    const res = toJSON(payload);
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error).toBeTruthy();
+    }
+  });
 });
+
