@@ -38,4 +38,19 @@ describe("SummaryCards", () => {
 
     expect(spy).toHaveBeenCalledTimes(2);
   });
+
+  it("shows alert on export failure (CSV)", async () => {
+    const user = userEvent.setup();
+    const mod = await import("../../../utils/export");
+    // mutate mocked module to simulate failure branch
+    (mod.toCSV as any) = vi.fn(() => ({ ok: false, error: "导出失败：测试错误" }));
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => undefined);
+
+    render(<SummaryCards id="job-3" metrics={{ return: 0.11, drawdown: 0.03, sharpe: 1.5 }} />);
+    await user.click(screen.getByRole("button", { name: "导出CSV" }));
+
+    expect(alertSpy).toHaveBeenCalled();
+    alertSpy.mockRestore();
+  });
 });
+

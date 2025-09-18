@@ -43,7 +43,7 @@ const queue = [
   } as any;
 });
 
-vi.mock("../../../../services/backtests", async () => {
+vi.mock("../../../../../services/backtests", async () => {
   return {
     getBacktestStatus: vi
       .fn()
@@ -74,5 +74,32 @@ describe("Backtests Detail Page", () => {
     // Expect metrics visible (e.g., sharpe label present)
     const sharpeEl = await screen.findByText(/夏普/i, {}, { timeout: 3000 });
     expect(sharpeEl).toBeInTheDocument();
+  });
+
+  it("shows unified error copy and actions when job failed (AC5)", async () => {
+    // Remock services for this test to simulate failure
+    const mod = await import("../../../../../services/backtests");
+    (mod.getBacktestStatus as any)
+      .mockReset()
+      .mockResolvedValueOnce({ id: "job-123", status: "failed", progress: 20 });
+    (mod.getBacktestResult as any).mockReset().mockResolvedValue({ id: "job-123", metrics: null });
+
+    render(<Page />);
+    const errEl = await screen.findByText(/作业失败/i, {}, { timeout: 2000 });
+    expect(errEl).toBeInTheDocument();
+    // actions exist
+    expect(screen.getByRole("button", { name: "重试加载" })).toBeInTheDocument();
+    const backBtns = screen.getAllByRole("button", { name: "返回列表" });
+    expect(backBtns.length).toBeGreaterThan(0);
+  });
+
+  it("exposes a11y attributes for status region and buttons (AC6)", async () => {
+    render(<Page />);
+    // status region has role and aria-live
+    const statusRegions = screen.getAllByRole("status");
+    expect(statusRegions.length).toBeGreaterThan(0);
+    // back button(s) with aria-label exist (may appear in header and error action area)
+    const backButtons = screen.getAllByRole("button", { name: "返回列表" });
+    expect(backButtons.length).toBeGreaterThan(0);
   });
 });
