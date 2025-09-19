@@ -51,4 +51,41 @@ describe("observability", () => {
     payload = spy.mock.calls.at(-1)?.[1];
     expect(payload.exporter).toBe("otlp");
   });
+
+  it("should allow runtime toggle of NEXT_PUBLIC_OBS_ENABLED within the same process", () => {
+    spy.mockClear();
+    // enabled -> should emit
+    (process.env as any).NEXT_PUBLIC_OBS_ENABLED = "true";
+    observability.trackSummaryRendered(10);
+    expect(spy).toHaveBeenCalled();
+
+    // disable -> should not emit
+    spy.mockClear();
+    (process.env as any).NEXT_PUBLIC_OBS_ENABLED = "false";
+    observability.trackSummaryRendered(11);
+    expect(spy).not.toHaveBeenCalled();
+
+    // re-enable -> should emit again
+    (process.env as any).NEXT_PUBLIC_OBS_ENABLED = "true";
+    observability.trackError("boom");
+    expect(spy).toHaveBeenCalled();
+  });
+
+  it("should treat empty or whitespace OTLP endpoint as console exporter", () => {
+    (process.env as any).NEXT_PUBLIC_OBS_ENABLED = "true";
+
+    // empty string -> console
+    (process.env as any).NEXT_PUBLIC_OTEL_EXPORTER_OTLP_ENDPOINT = "";
+    spy.mockClear();
+    observability.trackSummaryRendered(5);
+    let payload = spy.mock.calls.at(-1)?.[1];
+    expect(payload.exporter).toBe("console");
+
+    // whitespace -> console
+    (process.env as any).NEXT_PUBLIC_OTEL_EXPORTER_OTLP_ENDPOINT = "   ";
+    spy.mockClear();
+    observability.trackSummaryRendered(6);
+    payload = spy.mock.calls.at(-1)?.[1];
+    expect(payload.exporter).toBe("console");
+  });
 });
