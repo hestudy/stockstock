@@ -169,3 +169,79 @@ test.describe("Backtests Detail — Error & Empty States", () => {
   });
 });
 
+// 大数据量场景与交互健壮性覆盖（AC3 建议）
+test.describe("Backtests Detail — Large Equity & Interactions", () => {
+  test("summary still visible within 2s even with large equity data", async ({ page }) => {
+    const jobId = "job-e2e-large";
+
+    await page.route(/\/api\/v1\/backtests\/(.*)\/status/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ id: jobId, status: "succeeded", progress: 100 }),
+      });
+    });
+
+    // 生成较大样本的 equity（不应阻塞摘要 2s 渲染，因为曲线懒加载）
+    const largeEquity = Array.from({ length: 5000 }, (_, i) => ({ t: i, v: 1 + Math.sin(i / 25) * 0.02 }));
+    await page.route(/\/api\/v1\/backtests\/(.*)\/result/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ id: jobId, metrics: { return: 0.15, drawdown: 0.08, sharpe: 1.1 }, equity: largeEquity }),
+      });
+    });
+
+    await page.context().addCookies([
+      { name: "e2e_auth_bypass", value: "1", domain: "localhost", path: "/" },
+    ]);
+
+    await page.goto(`/backtests/${jobId}`);
+
+    // 摘要容器在 2 秒内可见
+    await expect(page.getByTestId("summary-cards")).toBeVisible({ timeout: 2000 });
+  });
+
+  test("chart renders and basic interactions work (wheel + hover)", async ({ page }) => {
+    const jobId = "job-e2e-interactions";
+
+    await page.route(/\/api\/v1\/backtests\/(.*)\/status/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ id: jobId, status: "succeeded", progress: 100 }),
+      });
+    });
+
+    const equity = Array.from({ length: 800 }, (_, i) => ({ t: i, v: 1 + i * 0.0005 }));
+    await page.route(/\/api\/v1\/backtests\/(.*)\/result/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ id: jobId, metrics: { return: 0.1, drawdown: 0.06, sharpe: 1.0 }, equity }),
+      });
+    });
+
+    await page.context().addCookies([
+      { name: "e2e_auth_bypass", value: "1", domain: "localhost", path: "/" },
+    ]);
+
+    await page.goto(`/backtests/${jobId}`);
+
+    // 等待图表渲染（具有可达性描述的角色/名称）
+    const chart = page.getByRole("img", { name: "可缩放与拖拽的净值曲线" });
+    await expect(chart).toBeVisible();
+
+    // 进行滚轮缩放，不应出现错误或导致图表消失
+    await chart.hover();
+    await chart.dispatchEvent("wheel", { deltaY: 100 });
+
+    // 鼠标移动以触发 hover 行为（tooltip 可能为自定义容器，此处仅验证无异常且仍可见）
+    const box = await chart.boundingBox();
+    if (box) {
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    }
+
+    await expect(chart).toBeVisible();
+  });
+});
