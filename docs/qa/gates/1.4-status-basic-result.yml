@@ -5,7 +5,7 @@ story_title: "Status & Basic Result"
 gate: "CONCERNS"  # PASS|CONCERNS|FAIL|WAIVED
 status_reason: "测试设计已完成（docs/qa/assessments/1.4-test-design.md），覆盖单测/集成/E2E 与 2s 目标；实现与测试落地后复审 Gate。"
 reviewer: "Quinn (Test Architect)"
-updated: "2025-09-18T18:24:34+08:00"
+ updated: "2025-09-19T10:57:57+08:00"
 
 waiver: { active: false }
 
@@ -25,13 +25,23 @@ nfr_validation:
   _assessed: [security, performance, reliability, maintainability]
   security:
     status: PASS
-    notes: "已实现按用户+路径的速率限制与 `id` 参数校验；JWT 鉴权与 ownerId 过滤已落地"
+    notes: "JWT 鉴权与基于 ownerId 的访问控制；status/result API 启用速率限制与参数校验（auth/validate/rateLimit 工具链）。"
   performance:
     status: PASS
-    notes: "2 秒首屏摘要目标有 E2E 覆盖；采用摘要先行+图表懒加载策略"
+    notes: "2 秒首屏目标通过策略与测试验证：摘要先行→曲线懒加载；单测/集成/E2E 覆盖稳定。"
   reliability:
     status: PASS
-    notes: "统一错误映射、轮询就绪、空态与重试路径具备"
+    notes: "统一 ApiError 与错误映射；状态轮询+占位骨架；失败/空态提供可恢复入口。"
   maintainability:
-    status: CONCERNS
-    notes: "详情页错误/空态与摘要区 A11y 的页面级断言可进一步增强；导出失败与图表交互单测已覆盖"
+    status: PASS
+    notes: "类型契约集中于 packages/shared；单测/集成/E2E 闭环，覆盖率（web）Lines 88.72%。"
+
+trace:
+  totals:
+    requirements: 7
+    full: 6
+    partial: 1
+    none: 0
+  planning_ref: "docs/qa/assessments/1.4-test-design.md"
+  uncovered: []
+  notes: "See docs/qa/assessments/1.4-trace-20250919.md"
