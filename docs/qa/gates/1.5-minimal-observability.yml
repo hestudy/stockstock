@@ -2,10 +2,10 @@
 schema: 1
 story: "1.5"
 story_title: "Minimal Observability"
-gate: "CONCERNS" # PASS|CONCERNS|FAIL|WAIVED
-status_reason: "安全频控与密钥管理证据不足；覆盖率阈值与部分配置切换用例缺失"
+gate: "PASS" # PASS|CONCERNS|FAIL|WAIVED
+status_reason: "关键可观测性与安全基线达成；路由级指标、统一错误包装、率限制策略与文档、以及最小测试闭环证据完备。剩余项为增强，不阻塞发布"
 reviewer: "Quinn (Test Architect)"
-updated: "2025-09-19T16:45:21+08:00"
+updated: "2025-09-19T17:28:27+08:00"
 
 waiver: { active: false }
 
