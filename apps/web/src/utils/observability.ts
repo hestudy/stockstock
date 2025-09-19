@@ -1,7 +1,10 @@
 // Minimal observability utilities for FE (enabled via NEXT_PUBLIC_OBS_ENABLED)
 // No external deps; emits structured events. Replace sinks with Sentry/OTLP later.
 
-const OBS_ENABLED = (process.env.NEXT_PUBLIC_OBS_ENABLED ?? "true").toLowerCase() !== "false";
+function obsEnabled() {
+  // read at call time to respect env changes during tests
+  return (process.env.NEXT_PUBLIC_OBS_ENABLED ?? "true").toLowerCase() !== "false";
+}
 
 function baseContext() {
   try {
@@ -20,9 +23,14 @@ function baseContext() {
   }
 }
 
+function exporterKind() {
+  const endpoint = process.env.NEXT_PUBLIC_OTEL_EXPORTER_OTLP_ENDPOINT?.trim();
+  return endpoint ? "otlp" : "console";
+}
+
 function emit(event: Record<string, unknown>) {
-  if (!OBS_ENABLED) return;
-  const payload = { ts: new Date().toISOString(), ...baseContext(), ...event };
+  if (!obsEnabled()) return;
+  const payload = { ts: new Date().toISOString(), exporter: exporterKind(), ...baseContext(), ...event };
   // Minimal sink: console.info in dev/CI. Replace with Sentry/OTLP as needed.
   // Avoid noisy logs in production builds by guarding with env.
   // eslint-disable-next-line no-console

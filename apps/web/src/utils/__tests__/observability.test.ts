@@ -28,4 +28,27 @@ describe("observability", () => {
     const payload = spy.mock.calls.at(-1)?.[1];
     expect(payload).toMatchObject({ evt: "error", error: { message: "boom", name: "Error" } });
   });
+
+  it("should not emit when NEXT_PUBLIC_OBS_ENABLED=false", () => {
+    spy.mockClear();
+    (process.env as any).NEXT_PUBLIC_OBS_ENABLED = "false";
+    observability.trackSummaryRendered(50);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("should include exporter=console by default and exporter=otlp when endpoint set", () => {
+    // default: no endpoint -> console
+    delete (process.env as any).NEXT_PUBLIC_OTEL_EXPORTER_OTLP_ENDPOINT;
+    spy.mockClear();
+    observability.trackSummaryRendered(77);
+    let payload = spy.mock.calls.at(-1)?.[1];
+    expect(payload.exporter).toBe("console");
+
+    // with endpoint -> otlp
+    (process.env as any).NEXT_PUBLIC_OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4318";
+    spy.mockClear();
+    observability.trackError("oops");
+    payload = spy.mock.calls.at(-1)?.[1];
+    expect(payload.exporter).toBe("otlp");
+  });
 });
