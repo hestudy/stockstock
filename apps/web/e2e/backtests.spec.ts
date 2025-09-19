@@ -34,8 +34,8 @@ test.describe("Backtests page - strategy editor smoke", () => {
     // 点击“提交回测”按钮
     await page.getByRole("button", { name: /提交回测/ }).click();
 
-    // 断言出现状态提示（role=status）
-    await expect(page.getByRole("status")).toBeVisible();
+    // 断言出现状态文本（避免 role=status 无可访问名称导致的歧义）
+    await expect(page.getByText(/^状态：/)).toBeVisible();
 
     // 跳转到 /backtests/{id}
     await expect(page).toHaveURL(/\/backtests\/e2e-job-123/);
