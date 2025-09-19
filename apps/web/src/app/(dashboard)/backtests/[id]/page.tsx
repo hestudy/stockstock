@@ -8,6 +8,7 @@ import type { ResultSummary, BacktestStatusResponse } from "@shared/backtest";
 import type { Props as EquityCurveProps } from "../../../../components/charts/EquityCurve";
 import { mapErrorToMessage } from "../../../../utils/errorMapping";
 import SummaryCards from "../../../../components/summary/SummaryCards";
+import { observability } from "../../../../utils/observability";
 
 const EquityCurve = dynamic<EquityCurveProps>(
   () => import("../../../../components/charts/EquityCurve"),
@@ -22,10 +23,13 @@ function usePolling(id: string) {
   const [result, setResult] = React.useState<ResultSummary | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const stoppedRef = React.useRef(false);
+  const startRef = React.useRef<number | null>(null);
+  const reportedRef = React.useRef(false);
 
   React.useEffect(() => {
     let mounted = true;
     let timer: any;
+    startRef.current = performance?.now?.() ?? Date.now();
 
     // 乐观尝试：如果结果已就绪，则尽快显示摘要，满足 2s 目标
     (async () => {
@@ -73,6 +77,23 @@ function usePolling(id: string) {
       if (timer) clearTimeout(timer);
     };
   }, [id]);
+
+  // 首次出现摘要时上报渲染耗时
+  React.useEffect(() => {
+    const hasSummary = !!result?.metrics && Object.keys(result.metrics).length > 0;
+    if (hasSummary && !reportedRef.current) {
+      const end = performance?.now?.() ?? Date.now();
+      const start = startRef.current ?? end;
+      const ms = Math.max(0, Math.round(end - start));
+      observability.trackSummaryRendered(ms, { id });
+      reportedRef.current = true;
+    }
+  }, [result, id]);
+
+  // 错误变化时上报
+  React.useEffect(() => {
+    if (error) observability.trackError(error, { id });
+  }, [error, id]);
 
   return { status, result, error };
 }

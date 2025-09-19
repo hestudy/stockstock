@@ -1,0 +1,31 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { observability } from "../observability";
+
+const origEnv = { ...process.env } as any;
+
+describe("observability", () => {
+  let spy: any;
+  beforeEach(() => {
+    process.env = { ...origEnv, NEXT_PUBLIC_OBS_ENABLED: "true", NODE_ENV: "test" } as any;
+    spy = vi.spyOn(console, "info").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    spy.mockRestore();
+    process.env = origEnv as any;
+  });
+
+  it("should emit summary_rendered event with ms", () => {
+    observability.trackSummaryRendered(123, { id: "abc" });
+    expect(spy).toHaveBeenCalled();
+    const args = spy.mock.calls[0];
+    expect(args[0]).toBe("[OBS]");
+    const payload = args[1];
+    expect(payload).toMatchObject({ evt: "summary_rendered", ms: 123, sid: expect.any(String) });
+  });
+
+  it("should emit error event with safe message", () => {
+    observability.trackError(new Error("boom"), { id: "abc" });
+    const payload = spy.mock.calls.at(-1)?.[1];
+    expect(payload).toMatchObject({ evt: "error", error: { message: "boom", name: "Error" } });
+  });
+});
