@@ -1,6 +1,9 @@
 // Minimal OTEL-like metrics without external deps. Console sink or OTLP-ready via env.
 
-const OBS_ENABLED = (process.env.OBS_ENABLED ?? "true").toLowerCase() !== "false";
+function obsEnabled() {
+  // read at call time to respect env changes during tests
+  return (process.env.OBS_ENABLED ?? "true").toLowerCase() !== "false";
+}
 
 function nowMs() {
   try {
@@ -13,7 +16,7 @@ function nowMs() {
 }
 
 export function recordHttp(route: string, method: string, status: number, ms: number) {
-  if (!OBS_ENABLED) return;
+  if (!obsEnabled()) return;
   const entry = {
     ts: new Date().toISOString(),
     kind: "http_server",

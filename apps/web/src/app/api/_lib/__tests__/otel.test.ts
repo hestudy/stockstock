@@ -34,4 +34,12 @@ describe("otel.timeHttp", () => {
     const payload = spy.mock.calls.at(-1)?.[1];
     expect(payload).toMatchObject({ status: 503 });
   });
+
+  it("does not emit metrics when OBS is disabled", async () => {
+    spy.mockClear();
+    process.env.OBS_ENABLED = "false";
+    await timeHttp("/api/v1/demo", "GET", async () => new Response("ok", { status: 200 }));
+    const calls = spy.mock.calls.filter((c: any[]) => c[0] === "[METRICS]");
+    expect(calls.length).toBe(0);
+  });
 });
