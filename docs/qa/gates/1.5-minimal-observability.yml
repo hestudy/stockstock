@@ -3,31 +3,27 @@ schema: 1
 story: "1.5"
 story_title: "Minimal Observability"
 gate: "PASS" # PASS|CONCERNS|FAIL|WAIVED
-status_reason: "关键可观测性与安全基线达成；路由级指标、统一错误包装、率限制策略与文档、以及最小测试闭环证据完备。剩余项为增强，不阻塞发布"
+status_reason: "关键可观测性与安全基线达成；路由级指标、统一错误包装、率限制策略与文档、以及最小测试闭环证据完备。剩余项为增强，不阻塞发布（已补充 SECURITY.md 与路由集成测试证据）"
 reviewer: "Quinn (Test Architect)"
-updated: "2025-09-19T17:28:27+08:00"
+updated: "2025-09-19T17:40:04+08:00"
 
 waiver: { active: false }
 
 top_issues:
-  - id: "SEC-001"
-    severity: high
-    finding: "缺少明确的敏感端点 rate limit 策略与测试证据"
-    suggested_action: "补充频控策略表（方法/路由/桶/时间窗/溢出响应）并在测试中覆盖至少 1 个敏感端点"
-  - id: "CONF-001"
+  - id: "TEST-002"
     severity: medium
-    finding: "密钥/端点配置来源与轮换策略未文档化"
-    suggested_action: "在 SECURITY.md 中补充 SENTRY_DSN/OTLP 等变量来源与轮换策略；确保 CI Secret 管理到位"
-  - id: "TEST-001"
-    severity: medium
-    finding: "覆盖率阈值未设定；部分配置切换用例缺失（OTEL_* / NEXT_PUBLIC_*）"
-    suggested_action: "在 CI 设定最小阈值（行≥80%/分支≥70%）；补 OTEL_* 与前端开关变体用例"
+    finding: "前端 NEXT_PUBLIC_* 观测开关（如 NEXT_PUBLIC_* 与导出变体）缺少测试覆盖"
+    suggested_action: "补充前端开关键路径的单测/集成用例，验证启用/禁用与变体分支"
+  - id: "UX-001"
+    severity: low
+    finding: "错误码→用户提示 映射矩阵不完整"
+    suggested_action: "扩充映射清单并补充断言用例，覆盖鉴权、参数、频控、上游不可用等常见分支"
 
 nfr_validation:
   _assessed: [security, performance, reliability, maintainability]
   security:
-    status: CONCERNS
-    notes: "Rate limit 策略与密钥管理证据不足；错误包装避免信息泄露"
+    status: PASS
+    notes: "`SECURITY.md` 已文档化 secrets 来源/轮换与敏感端点频控表；路由级集成测试覆盖 429 分支；统一错误包装避免信息泄露"
   performance:
     status: PASS
     notes: "E2E 验证 2s 首屏；API timeHttp 记录路由级时延"
@@ -35,8 +31,8 @@ nfr_validation:
     status: PASS
     notes: "统一错误包装与多分支测试；Workers 结构化日志与单测"
   maintainability:
-    status: CONCERNS
-    notes: "覆盖率阈值未设；需补集成断言与配置切换用例"
+    status: PASS
+    notes: "CI 覆盖率阈值已设（建议线：L/S/F≥80%、B≥70%）；已补 OTEL 导出器与 OBS 开关的运行时切换用例；剩余为前端变体与文档化增强"
 
 # Optional section: evidence summary
 # evidence:
