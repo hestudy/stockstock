@@ -5,15 +5,11 @@ story_title: "Minimal Observability"
 gate: "PASS" # PASS|CONCERNS|FAIL|WAIVED
 status_reason: "关键可观测性与安全基线达成；路由级指标、统一错误包装、率限制策略与文档、以及最小测试闭环证据完备。剩余项为增强，不阻塞发布（已补充 SECURITY.md 与路由集成测试证据）"
 reviewer: "Quinn (Test Architect)"
-updated: "2025-09-19T18:05:30+08:00"
+updated: "2025-09-19T18:21:31+08:00"
 
 waiver: { active: false }
 
 top_issues:
-  - id: "TEST-002"
-    severity: medium
-    finding: "前端 NEXT_PUBLIC_* 观测开关（如 NEXT_PUBLIC_* 与导出变体）缺少测试覆盖"
-    suggested_action: "补充前端开关键路径的单测/集成用例，验证启用/禁用与变体分支"
   - id: "UX-001"
     severity: low
     finding: "错误码→用户提示 映射矩阵不完整"
@@ -32,7 +28,7 @@ nfr_validation:
     notes: "统一错误包装与多分支测试；Workers 结构化日志与单测"
   maintainability:
     status: PASS
-    notes: "CI 覆盖率阈值已设（建议线：L/S/F≥80%、B≥70%）；已补 OTEL 导出器与 OBS 开关的运行时切换用例；剩余为前端变体与文档化增强"
+    notes: "CI 覆盖率阈值已设（建议线：L/S/F≥80%、B≥70%）；OTEL 导出器与 OBS 开关运行时切换用例已补齐，前端 NEXT_PUBLIC_* 变体测试覆盖已完成；剩余为文档化与 UX 映射矩阵增强"
 
 # Optional section: evidence summary
 # evidence:
