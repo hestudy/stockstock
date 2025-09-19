@@ -38,4 +38,59 @@ describe("EquityCurve", () => {
     // restore
     (container as any).getBoundingClientRect = orig;
   });
+
+  it("zooms (wheel) reduces visible path segments", () => {
+    // 构造足够多的数据点以便缩放前后可见数据发生变化
+    const data = Array.from({ length: 101 }, (_, i) => ({ t: i, v: 1 + i * 0.001 }));
+    render(<EquityCurve data={data} />);
+
+    const container = screen.getByRole("img", { name: "可缩放与拖拽的净值曲线" });
+    const orig = (container as HTMLElement & { getBoundingClientRect: any }).getBoundingClientRect;
+    (container as any).getBoundingClientRect = () => ({ left: 0, top: 0, width: 600, height: 200 } as any);
+
+    // 初始 path 的 d 属性（包含全部可见点）
+    const pathBefore = container.getElementsByTagName("path")[0];
+    const dBefore = pathBefore.getAttribute("d") ?? "";
+    expect(dBefore.length).toBeGreaterThan(0);
+    const segBefore = (dBefore.match(/L/g) || []).length;
+
+    // 触发缩放（deltaY > 0 表示缩小视野、减少可见点）
+    fireEvent.wheel(container, { deltaY: 100 });
+
+    const pathAfter = container.getElementsByTagName("path")[0];
+    const dAfter = pathAfter.getAttribute("d") ?? "";
+    const segAfter = (dAfter.match(/L/g) || []).length;
+
+    // 断言：缩放后路径由更少的线段组成（"L" 指令数量减少）
+    expect(segAfter).toBeLessThan(segBefore);
+
+    (container as any).getBoundingClientRect = orig;
+  });
+
+  it("pans (drag) changes visible window and path content", () => {
+    const data = Array.from({ length: 120 }, (_, i) => ({ t: i, v: 1 + Math.sin(i / 10) * 0.01 }));
+    render(<EquityCurve data={data} />);
+
+    const container = screen.getByRole("img", { name: "可缩放与拖拽的净值曲线" });
+    const orig = (container as HTMLElement & { getBoundingClientRect: any }).getBoundingClientRect;
+    (container as any).getBoundingClientRect = () => ({ left: 0, top: 0, width: 600, height: 200 } as any);
+
+    // 先缩放一次，减小可见窗口，确保可平移
+    fireEvent.wheel(container, { deltaY: 100 });
+    const pathEl = container.getElementsByTagName("path")[0];
+    const dStart = pathEl.getAttribute("d") ?? "";
+    expect(dStart.length).toBeGreaterThan(0);
+
+    // 模拟按下并向右拖拽（平移视窗）
+    fireEvent.mouseDown(container, { clientX: 100, clientY: 50 });
+    // 拖拽 120px，结合组件中 pxPerIndex，足以产生可见窗口移动
+    fireEvent.mouseMove(container, { clientX: 220, clientY: 50 });
+    fireEvent.mouseUp(container);
+
+    const dEnd = container.getElementsByTagName("path")[0].getAttribute("d") ?? "";
+    // 断言：平移后路径内容发生变化（可见区段改变）
+    expect(dEnd).not.toEqual(dStart);
+
+    (container as any).getBoundingClientRect = orig;
+  });
 });
