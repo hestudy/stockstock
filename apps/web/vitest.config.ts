@@ -14,11 +14,11 @@ export default defineConfig({
       // 统计服务层与组件层覆盖率
       include: ["src/services/**", "src/components/**"],
       thresholds: {
-        lines: 70,
-        statements: 70,
-        functions: 70,
-        // 组件内分支较少且更依赖 E2E 场景，此处阶段性放宽，后续补齐测试再提升
-        branches: 60,
+        lines: 80,
+        statements: 80,
+        functions: 80,
+        // 分支阈值阶段性 70%，后续随着场景用例增加再提升
+        branches: 70,
       },
       exclude: [
         "e2e/**",
@@ -38,3 +38,4 @@ export default defineConfig({
     },
   },
 });
+

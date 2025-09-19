@@ -42,4 +42,21 @@ describe("otel.timeHttp", () => {
     const calls = spy.mock.calls.filter((c: any[]) => c[0] === "[METRICS]");
     expect(calls.length).toBe(0);
   });
+
+  it("marks exporter as console when no OTLP endpoint is configured", async () => {
+    spy.mockClear();
+    delete (process.env as any).OTEL_EXPORTER_OTLP_ENDPOINT;
+    await timeHttp("/api/v1/demo", "GET", async () => new Response("ok", { status: 200 }));
+    const payload = spy.mock.calls.at(-1)?.[1];
+    expect(payload.exporter).toBe("console");
+  });
+
+  it("marks exporter as otlp when OTLP endpoint is configured", async () => {
+    spy.mockClear();
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4318";
+    await timeHttp("/api/v1/demo", "GET", async () => new Response("ok", { status: 200 }));
+    const payload = spy.mock.calls.at(-1)?.[1];
+    expect(payload.exporter).toBe("otlp");
+  });
 });
+

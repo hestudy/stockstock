@@ -15,6 +15,12 @@ function nowMs() {
   }
 }
 
+function exporterKind() {
+  // Minimal switch: if endpoint configured, mark as otlp; otherwise console
+  const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT?.trim();
+  return endpoint ? "otlp" : "console";
+}
+
 export function recordHttp(route: string, method: string, status: number, ms: number) {
   if (!obsEnabled()) return;
   const entry = {
@@ -24,6 +30,7 @@ export function recordHttp(route: string, method: string, status: number, ms: nu
     method,
     status,
     duration_ms: Math.round(ms),
+    exporter: exporterKind(),
   };
   // eslint-disable-next-line no-console
   if (process.env.NODE_ENV !== "production") console.info("[METRICS]", entry);
@@ -47,3 +54,4 @@ export async function timeHttp<T extends Response | any>(
     throw e;
   }
 }
+
