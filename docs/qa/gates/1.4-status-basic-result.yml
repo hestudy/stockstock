@@ -5,7 +5,7 @@ story_title: "Status & Basic Result"
 gate: "PASS"  # PASS|CONCERNS|FAIL|WAIVED
 status_reason: "单测/集成/E2E 已形成稳定闭环；AC3（曲线交互与大数据量）已补齐并验证 2s 首屏不受影响；追踪矩阵显示 7/7 FULL。"
 reviewer: "Quinn (Test Architect)"
-updated: "2025-09-19T12:46:30+08:00"
+updated: "2025-09-19T12:59:06+08:00"
 
 waiver: { active: false }
 
@@ -31,7 +31,7 @@ nfr_validation:
     notes: "统一 ApiError 与错误映射；状态轮询+占位骨架；失败/空态提供可恢复入口。"
   maintainability:
     status: PASS
-    notes: "类型契约集中于 packages/shared；单测/集成/E2E 闭环，覆盖率（web）Lines 88.72%。"
+    notes: "类型契约集中于 packages/shared；单测/集成/E2E 闭环，覆盖率（web）Lines 91.07%。"
 
 trace:
   totals:
