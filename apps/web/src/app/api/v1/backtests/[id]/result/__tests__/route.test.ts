@@ -26,10 +26,19 @@ describe("result route", () => {
   afterEach(() => vi.resetAllMocks());
 
   it("200 OK on happy path", async () => {
+    const spy = vi.spyOn(console, "info").mockImplementation(() => {});
+    delete (process.env as any).OTEL_EXPORTER_OTLP_ENDPOINT;
+    (process.env as any).OBS_ENABLED = "true";
     const res = await GET(makeReq(), ctx("job-1"));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toMatchObject({ id: "job-1", metrics: expect.any(Object) });
+    const payload = (spy.mock.calls.at(-1) as any)?.[1];
+    expect(payload).toMatchObject({ kind: "http_server", route: "/api/v1/backtests/[id]/result", method: "GET", status: 200 });
+    expect(payload.exporter).toBe("console");
+    expect(typeof payload.duration_ms).toBe("number");
+    expect(payload.duration_ms).toBeGreaterThanOrEqual(0);
+    spy.mockRestore();
   });
 
   it("400 on invalid id", async () => {
@@ -41,11 +50,19 @@ describe("result route", () => {
   });
 
   it("401 when unauthenticated", async () => {
+    const spy = vi.spyOn(console, "info").mockImplementation(() => {});
+    delete (process.env as any).OTEL_EXPORTER_OTLP_ENDPOINT;
+    (process.env as any).OBS_ENABLED = "true";
     (getOwner as any).mockRejectedValue(new Error("nope"));
     const res = await GET(makeReq(), ctx("job-1"));
     expect(res.status).toBe(401);
     const body = await res.json();
     expect(body).toMatchObject({ error: { message: "UNAUTHENTICATED" } });
+    const payload = (spy.mock.calls.at(-1) as any)?.[1];
+    expect(payload).toMatchObject({ status: 401 });
+    expect(payload.exporter).toBe("console");
+    expect(typeof payload.duration_ms).toBe("number");
+    spy.mockRestore();
   });
 
   it("429 when rate limited", async () => {
@@ -57,6 +74,9 @@ describe("result route", () => {
   });
 
   it("500 on internal error (wrap)", async () => {
+    const spy = vi.spyOn(console, "info").mockImplementation(() => {});
+    delete (process.env as any).OTEL_EXPORTER_OTLP_ENDPOINT;
+    (process.env as any).OBS_ENABLED = "true";
     (rateLimit as any).mockImplementation(() => {
       const e: any = new Error("boom");
       e.status = 500;
@@ -66,5 +86,21 @@ describe("result route", () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body).toMatchObject({ error: { message: "boom" } });
+    const payload = (spy.mock.calls.at(-1) as any)?.[1];
+    expect(payload).toMatchObject({ status: 500 });
+    expect(payload.exporter).toBe("console");
+    expect(typeof payload.duration_ms).toBe("number");
+    spy.mockRestore();
+  });
+
+  it("uses exporter=otlp when OTEL endpoint configured", async () => {
+    const spy = vi.spyOn(console, "info").mockImplementation(() => {});
+    (process.env as any).OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4318";
+    (process.env as any).OBS_ENABLED = "true";
+    const res = await GET(makeReq(), ctx("job-2"));
+    expect(res.status).toBe(200);
+    const payload = (spy.mock.calls.at(-1) as any)?.[1];
+    expect(payload.exporter).toBe("otlp");
+    spy.mockRestore();
   });
 });
