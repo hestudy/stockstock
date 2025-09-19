@@ -1,25 +1,22 @@
-# <!-- Powered by BMAD™ Core -->
+# <!-- Powered by BMAD Core -->
 schema: 1
 story: "1.4"
 story_title: "Status & Basic Result"
-gate: "CONCERNS"  # PASS|CONCERNS|FAIL|WAIVED
-status_reason: "测试设计已完成（docs/qa/assessments/1.4-test-design.md），覆盖单测/集成/E2E 与 2s 目标；实现与测试落地后复审 Gate。"
+gate: "PASS"  # PASS|CONCERNS|FAIL|WAIVED
+status_reason: "单测/集成/E2E 已形成稳定闭环；AC3（曲线交互与大数据量）已补齐并验证 2s 首屏不受影响；追踪矩阵显示 7/7 FULL。"
 reviewer: "Quinn (Test Architect)"
- updated: "2025-09-19T10:57:57+08:00"
+updated: "2025-09-19T12:46:30+08:00"
 
 waiver: { active: false }
 
-top_issues:
-  - "待实现摘要 2s 首屏渲染的性能校验与稳定 E2E 钩子"
-  - "导出格式（CSV/JSON）字段口径需在实现时定稿并补充测试覆盖"
+top_issues: []
 
 risk_summary:
-  totals: { critical: 0, high: 0, medium: 2, low: 1 }
+  totals: { critical: 0, high: 0, medium: 0, low: 0 }
   recommendations:
-    must_fix:
-      - "完成状态/结果接口集成测试（成功/429/5xx/网络错误）并补充页面轮询与 2s 断言"
+    must_fix: []
     monitor:
-      - "曲线数据量较大场景下的懒加载与降级策略（摘要优先渲染）"
+      - "保留大数据量与交互 e2e 场景作为回归基线，持续观察跨浏览器稳定性（非阻断）"
 
 nfr_validation:
   _assessed: [security, performance, reliability, maintainability]
@@ -39,8 +36,8 @@ nfr_validation:
 trace:
   totals:
     requirements: 7
-    full: 6
-    partial: 1
+    full: 7
+    partial: 0
     none: 0
   planning_ref: "docs/qa/assessments/1.4-test-design.md"
   uncovered: []
