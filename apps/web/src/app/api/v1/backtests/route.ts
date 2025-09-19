@@ -1,11 +1,7 @@
 import { NextResponse } from "next/server";
 import type { BacktestSubmitRequest, BacktestSubmitResponse, JobStatus } from "@shared/backtest";
 import { getSupabaseServerClient } from "../../../../services/supabaseServer";
-
-// 简单内存速率限制（演示用）
-const WINDOW_MS = 10_000; // 10s
-const LIMIT = 5; // 每 IP 窗口内最多 5 次
-const buckets = new Map<string, { count: number; resetAt: number }>();
+import { rateLimit } from "../../_lib/rateLimit";
 
 // 幂等窗口（5 分钟）
 const IDEMPOTENCY_WINDOW_MS = 5 * 60 * 1000;
@@ -21,18 +17,13 @@ export async function POST(request: Request) {
   const DISABLE_RATE_LIMIT = process.env.RATE_LIMIT_DISABLED === "1";
   if (!DISABLE_RATE_LIMIT) {
     const ip = getClientIp(request);
-    const now = Date.now();
-    const bucket = buckets.get(ip);
-    if (!bucket || now > bucket.resetAt) {
-      buckets.set(ip, { count: 1, resetAt: now + WINDOW_MS });
-    } else {
-      bucket.count += 1;
-      if (bucket.count > LIMIT) {
-        return NextResponse.json(
-          { error: { message: "请求过于频繁，请稍后再试。", reason: "rate_limited" } },
-          { status: 429 },
-        );
-      }
+    const key = `${ip}:/api/v1/backtests`;
+    const { allowed } = rateLimit(key, { limit: 5, windowMs: 10_000 });
+    if (!allowed) {
+      return NextResponse.json(
+        { error: { message: "请求过于频繁，请稍后再试。", reason: "rate_limited" } },
+        { status: 429 },
+      );
     }
   }
 
