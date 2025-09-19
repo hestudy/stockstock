@@ -56,6 +56,42 @@ test.describe("Backtests Detail — Summary within 2 seconds", () => {
     const elapsed = Date.now() - start;
     console.log(`Summary visible in ${elapsed}ms`);
   });
+
+  test("emits summary_rendered observability event", async ({ page }) => {
+    const jobId = "job-e2e-obs";
+
+    await page.route(/\/api\/v1\/backtests\/(.*)\/status/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ id: jobId, status: "succeeded", progress: 100 }),
+      });
+    });
+    await page.route(/\/api\/v1\/backtests\/(.*)\/result/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: jobId,
+          metrics: { return: 0.11, drawdown: 0.04, sharpe: 1.3 },
+          equity: [ { t: 0, v: 1 }, { t: 1, v: 1.01 } ],
+        }),
+      });
+    });
+
+    await page.context().addCookies([
+      { name: "e2e_auth_bypass", value: "1", domain: "localhost", path: "/" },
+    ]);
+
+    await page.goto(`/backtests/${jobId}`);
+    await expect(page.getByTestId("summary-cards")).toBeVisible({ timeout: 2000 });
+
+    // 严格断言：读取浏览器端 hook 收集到的观测事件
+    const events = await page.evaluate(() => (window as any).__OBS_EVENTS__ || []);
+    expect(Array.isArray(events)).toBeTruthy();
+    const hasSummaryRendered = events.some((e: any) => e?.evt === "summary_rendered" && e?.id === "job-e2e-obs");
+    expect(hasSummaryRendered).toBeTruthy();
+  });
 });
 
 // 新增覆盖：导出成功（CSV/JSON）

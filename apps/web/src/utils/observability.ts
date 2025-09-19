@@ -27,6 +27,12 @@ function emit(event: Record<string, unknown>) {
   // Avoid noisy logs in production builds by guarding with env.
   // eslint-disable-next-line no-console
   if (process.env.NODE_ENV !== "production") console.info("[OBS]", payload);
+  // Test hook for E2E: expose events on window for strict assertions
+  if (typeof window !== "undefined" && process.env.NODE_ENV !== "production") {
+    const w = window as any;
+    if (!Array.isArray(w.__OBS_EVENTS__)) w.__OBS_EVENTS__ = [];
+    w.__OBS_EVENTS__.push(payload);
+  }
   // TODO: hook to window.__SENTRY__ or custom transport here when available
 }
 
