@@ -96,6 +96,13 @@ paths:
       responses:
         '202':
           description: Accepted
+          headers:
+            x-param-space-estimate:
+              description: Cartesian product estimate of submitted param space (capped by OPT_PARAM_SPACE_MAX)
+              schema: { type: integer, minimum: 1 }
+            x-concurrency-limit:
+              description: Effective concurrency limit after applying server-side cap (max 16)
+              schema: { type: integer, minimum: 1, maximum: 16 }
           content:
             application/json:
               schema:
@@ -178,7 +185,11 @@ components:
       required: [versionId, paramSpace]
       properties:
         versionId: { type: string }
-        concurrencyLimit: { type: integer, default: 2 }
+        concurrencyLimit:
+          type: integer
+          default: 2
+          minimum: 1
+          maximum: 16
         earlyStopPolicy:
           type: object
           properties:

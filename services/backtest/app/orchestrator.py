@@ -47,6 +47,7 @@ class OptimizationJob:
     concurrency_limit: int
     early_stop_policy: Optional[EarlyStopPolicy]
     status: JobStatus = DEFAULT_STATUS
+    summary: Optional[Dict[str, Any]] = None
     total_tasks: int = 0
     created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
@@ -56,8 +57,17 @@ class OptimizationJob:
 class OptimizationTask:
     id: str
     job_id: str
+    owner_id: str
+    version_id: str
     params: Dict[str, Any]
     status: JobStatus = DEFAULT_STATUS
+    progress: Optional[float] = None
+    retries: int = 0
+    error: Optional[Dict[str, Any]] = None
+    result_summary_id: Optional[str] = None
+    score: Optional[float] = None
+    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
 
 
 _STORE: Dict[str, OptimizationJob] = {}
@@ -185,14 +195,20 @@ def create_optimization_job(
     )
     _STORE[job_id] = job
     tasks = [
-        OptimizationTask(id=str(uuid.uuid4()), job_id=job_id, params=params)
-        for params in limited_tasks(normalized, computed_estimate)
+        OptimizationTask(
+            id=str(uuid.uuid4()),
+            job_id=job_id,
+            owner_id=owner_id,
+            version_id=version_id,
+            params=params,
+        )
+        for params in limited_param_sets(normalized, computed_estimate)
     ]
     _TASKS[job_id] = tasks
     return {"id": job_id, "status": job.status}
 
 
-def limited_tasks(normalized: Dict[str, Sequence[Any]], estimate: int) -> Iterable[Dict[str, Any]]:
+def limited_param_sets(normalized: Dict[str, Sequence[Any]], estimate: int) -> Iterable[Dict[str, Any]]:
     """Generate tasks but cap at 1k records to avoid memory explosion."""
     cap = min(estimate, 1000)
     iterator = expand_param_space(normalized)

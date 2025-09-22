@@ -84,6 +84,7 @@ export interface OptimizationJob {
   concurrencyLimit: number;
   earlyStopPolicy?: { metric: string; threshold: number; mode: "min" | "max" };
   status: BacktestJob["status"];
+  totalTasks: number; // 归一化后的组合基数
   summary?: {
     total: number;
     finished: number;

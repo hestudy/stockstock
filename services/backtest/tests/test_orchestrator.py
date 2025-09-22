@@ -37,9 +37,16 @@ def test_create_optimization_job_records_state():
     assert len(jobs) == 1
     job = jobs[0]
     assert job.total_tasks == 4
+    assert job.summary is None
     tasks = debug_tasks(job.id)
     assert len(tasks) == 4
     assert any(task.params["ma_short"] == 5 for task in tasks)
+    first = tasks[0]
+    assert first.owner_id == "owner-1"
+    assert first.version_id == "v-1"
+    assert first.status == "queued"
+    assert first.retries == 0
+    assert first.progress is None
 
 
 def test_create_optimization_job_respects_limit():
