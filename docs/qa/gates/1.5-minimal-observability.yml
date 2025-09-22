@@ -3,9 +3,9 @@ schema: 1
 story: "1.5"
 story_title: "Minimal Observability"
 gate: "PASS" # PASS|CONCERNS|FAIL|WAIVED
-status_reason: "关键可观测性与安全基线达成；路由级指标、统一错误包装、率限制策略与文档、以及最小测试闭环证据完备。剩余项为增强，不阻塞发布（已补充 SECURITY.md 与路由集成测试证据）"
+status_reason: "关键可观测性与安全基线达成；路由级指标覆盖成功/401/429/503 状态，统一错误包装、率限制策略与文档、以及最小测试闭环证据完备。剩余项为增强，不阻塞发布。"
 reviewer: "Quinn (Test Architect)"
-updated: "2025-09-19T18:21:31+08:00"
+updated: "2025-09-22T12:05:00+08:00"
 
 waiver: { active: false }
 
@@ -28,7 +28,7 @@ nfr_validation:
     notes: "统一错误包装与多分支测试；Workers 结构化日志与单测"
   maintainability:
     status: PASS
-    notes: "CI 覆盖率阈值已设（建议线：L/S/F≥80%、B≥70%）；OTEL 导出器与 OBS 开关运行时切换用例已补齐，前端 NEXT_PUBLIC_* 变体测试覆盖已完成；剩余为文档化与 UX 映射矩阵增强"
+    notes: "CI 覆盖率阈值已设（建议线：L/S/F≥80%、B≥70%）；OTEL 导出器与 OBS 开关运行时切换用例已补齐，前端 NEXT_PUBLIC_* 变体测试覆盖已完成；API status/result 集成测试验证成功/401/429/503 指标标签；剩余为文档化与 UX 映射矩阵增强"
 
 # Optional section: evidence summary
 # evidence:
