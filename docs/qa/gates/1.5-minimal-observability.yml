@@ -3,9 +3,9 @@ schema: 1
 story: "1.5"
 story_title: "Minimal Observability"
 gate: "PASS" # PASS|CONCERNS|FAIL|WAIVED
-status_reason: "复核确认 FE/API/Workers 观测封装与运行时开关稳定；路由级指标覆盖 200/401/429/503 并携带 exporter/duration 标签，单测＋集成＋Pytest 闭环全部通过。残留 UX-001 属增强建议。"
+status_reason: "错误映射回归（25 项 Vitest 断言）确认鉴权/参数/限流/超时/网络/上游异常提示一致，且 FE/API/Workers 观测封装与运行时开关仍稳定；路由级指标覆盖 200/401/429/503 并携带 exporter/duration 标签，单测＋集成＋Pytest 闭环全部通过。残留 UX-001 属增强建议。"
 reviewer: "Quinn (Test Architect)"
-updated: "2025-09-22T14:12:00+08:00"
+updated: "2025-09-22T14:40:00+08:00"
 
 waiver: { active: false }
 
