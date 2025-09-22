@@ -9,6 +9,7 @@ import { fail, wrap } from "../../_lib/handler";
 import { timeHttp } from "../../_lib/otel";
 import { createOptimizationJob } from "./orchestratorClient";
 import { getParamSpaceLimit, summarizeParamSpace } from "./paramSpace";
+import { assertVersionOwnership } from "./versionOwnership";
 
 const ROUTE = "/api/v1/optimizations";
 const DEFAULT_CONCURRENCY_LIMIT = 2;
@@ -31,6 +32,8 @@ export async function POST(req: Request) {
 
       const concurrencyLimit = resolveConcurrencyLimit(body.concurrencyLimit);
       const earlyStopPolicy = validateEarlyStop(body.earlyStopPolicy);
+
+      await assertVersionOwnership(ownerId, body.versionId);
 
       const response = await createOptimizationJob({
         ownerId,

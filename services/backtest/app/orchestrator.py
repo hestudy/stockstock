@@ -17,6 +17,7 @@ JobStatus = str
 DEFAULT_STATUS: JobStatus = "queued"
 DEFAULT_LIMIT = 500
 MAX_SAFE_PRODUCT = DEFAULT_LIMIT * 4
+DEFAULT_CONCURRENCY_MAX = 16
 
 
 class ParamInvalidError(Exception):
@@ -82,6 +83,17 @@ def get_param_limit() -> int:
         value = int(raw)
     except ValueError:
         return DEFAULT_LIMIT
+    return max(1, value)
+
+
+def get_concurrency_limit_max() -> int:
+    raw = os.getenv("OPT_CONCURRENCY_LIMIT_MAX")
+    if not raw:
+        return DEFAULT_CONCURRENCY_MAX
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_CONCURRENCY_MAX
     return max(1, value)
 
 
@@ -152,6 +164,21 @@ def safe_multiply(current: int, factor: int, limit: int) -> int:
     return product
 
 
+def normalize_concurrency_limit(limit: int) -> int:
+    if limit <= 0:
+        raise ParamInvalidError(
+            "concurrency limit must be positive",
+            {"concurrency": limit},
+        )
+    max_limit = get_concurrency_limit_max()
+    if limit > max_limit:
+        raise ParamInvalidError(
+            "concurrency limit exceeds maximum",
+            {"limit": max_limit, "requested": limit},
+        )
+    return limit
+
+
 def expand_param_space(normalized: Dict[str, Sequence[Any]]) -> Iterable[Dict[str, Any]]:
     keys = list(normalized.keys())
     value_lists = [normalized[k] for k in keys]
@@ -175,6 +202,7 @@ def create_optimization_job(
             "param space too large",
             {"limit": limit, "estimate": computed_estimate},
         )
+    sanitized_concurrency = normalize_concurrency_limit(concurrency_limit)
     job_id = str(uuid.uuid4())
     policy = None
     if early_stop_policy:
@@ -189,7 +217,7 @@ def create_optimization_job(
         version_id=version_id,
         param_space=param_space,
         normalized_space=normalized,
-        concurrency_limit=concurrency_limit,
+        concurrency_limit=sanitized_concurrency,
         early_stop_policy=policy,
         total_tasks=computed_estimate,
     )

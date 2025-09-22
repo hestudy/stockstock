@@ -1,4 +1,6 @@
-from fastapi import FastAPI, HTTPException
+import os
+
+from fastapi import FastAPI, HTTPException, Header, Depends
 import structlog
 from datetime import datetime
 from typing import Optional, Dict, Any, Literal
@@ -121,8 +123,30 @@ class OptimizationCreateReq(BaseModel):
         return value
 
 
+def require_internal_secret(secret: Optional[str] = Header(None, alias="x-opt-shared-secret")):
+    expected = os.getenv("OPTIMIZATION_ORCHESTRATOR_SECRET")
+    if expected and secret != expected:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "E.FORBIDDEN", "message": "invalid orchestrator credentials"},
+        )
+
+
 @app.post("/internal/optimizations")
-async def optimizations(req: OptimizationCreateReq):
+async def optimizations(
+    req: OptimizationCreateReq,
+    _secret: None = Depends(require_internal_secret),
+    owner_header: Optional[str] = Header(None, alias="x-owner-id"),
+):
+    if owner_header and owner_header != req.ownerId:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "E.FORBIDDEN",
+                "message": "owner mismatch",
+                "details": {"ownerId": req.ownerId, "header": owner_header},
+            },
+        )
     try:
         payload = create_optimization_job(
             owner_id=req.ownerId,

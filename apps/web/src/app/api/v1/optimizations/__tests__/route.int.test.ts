@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { POST } from "../route";
 import { debugListJobs, debugResetJobs } from "../orchestratorClient";
+import { resetVersionOwnershipStore, seedVersionOwnership } from "../versionOwnership";
 
 const origEnv = { ...process.env } as Record<string, string | undefined>;
 
@@ -22,14 +23,17 @@ describe("POST /api/v1/optimizations", () => {
       OPT_PARAM_SPACE_MAX: "32",
     } as any;
     debugResetJobs();
+    resetVersionOwnershipStore();
   });
 
   afterEach(() => {
     process.env = origEnv as any;
     debugResetJobs();
+    resetVersionOwnershipStore();
   });
 
   it("accepts a valid optimization submission", async () => {
+    seedVersionOwnership("v-1", "test-owner");
     const body = {
       versionId: "v-1",
       paramSpace: {
@@ -46,6 +50,9 @@ describe("POST /api/v1/optimizations", () => {
     expect(payload.status).toBe("queued");
     const jobs = debugListJobs();
     expect(jobs).toHaveLength(1);
+    expect(jobs[0].ownerId).toBe("test-owner");
+    expect(jobs[0].concurrencyLimit).toBe(4);
+    expect(jobs[0].earlyStopPolicy).toEqual({ metric: "sharpe", threshold: 1.2, mode: "max" });
     expect(jobs[0].totalTasks).toBe(9);
     expect(res.headers.get("x-param-space-estimate")).toBe("9");
     expect(res.headers.get("x-concurrency-limit")).toBe("4");
@@ -53,6 +60,7 @@ describe("POST /api/v1/optimizations", () => {
 
   it("rejects when param space exceeds limit", async () => {
     process.env.OPT_PARAM_SPACE_MAX = "3";
+    seedVersionOwnership("v-1", "test-owner");
     const body = {
       versionId: "v-1",
       paramSpace: {
@@ -77,5 +85,17 @@ describe("POST /api/v1/optimizations", () => {
     expect(res.status).toBe(401);
     const payload = (await res.json()) as any;
     expect(payload.error.code).toBe("E.AUTH");
+  });
+
+  it("rejects when version does not belong to owner", async () => {
+    seedVersionOwnership("v-foreign", "other-owner");
+    const body = {
+      versionId: "v-foreign",
+      paramSpace: { only: [1] },
+    };
+    const res = await POST(makeRequest(body));
+    expect(res.status).toBe(403);
+    const payload = (await res.json()) as any;
+    expect(payload.error.code).toBe("E.FORBIDDEN");
   });
 });

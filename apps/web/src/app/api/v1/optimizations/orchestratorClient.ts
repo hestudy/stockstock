@@ -2,6 +2,12 @@ import type { OptimizationJob, OptimizationSubmitResponse } from "@shared/index"
 import type { NormalizedParamSpace, ParamSpace } from "./paramSpace";
 
 const STORE_KEY = Symbol.for("opt.jobs.store");
+const REQUEST_ID_PREFIX = "optreq";
+const SHARED_SECRET_HEADER = "x-opt-shared-secret";
+const OWNER_HEADER = "x-owner-id";
+const REQUEST_ID_HEADER = "x-request-id";
+const MAX_REMOTE_RETRIES = 3;
+const REMOTE_RETRY_DELAY_MS = 200;
 
 type InMemoryStore = {
   jobs: Map<string, OptimizationJob>;
@@ -40,33 +46,71 @@ async function sendToRemote(
   input: OptimizationCreateInput,
 ): Promise<OptimizationSubmitResponse> {
   const url = new URL("/internal/optimizations", baseUrl).toString();
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      ownerId: input.ownerId,
-      versionId: input.versionId,
-      paramSpace: input.paramSpace,
-      normalizedParamSpace: input.normalized,
-      concurrencyLimit: input.concurrencyLimit,
-      earlyStopPolicy: input.earlyStopPolicy,
-      estimate: input.estimate,
-    }),
-  });
-  if (!res.ok) {
-    const err = new Error("Failed to enqueue optimization job");
-    (err as any).code = "E.DEP_UPSTREAM";
-    (err as any).status = res.status >= 400 && res.status < 500 ? res.status : 502;
-    try {
-      const payload = await res.json();
-      (err as any).details = payload;
-    } catch {
-      // ignore
-    }
+  const sharedSecret = process.env.OPTIMIZATION_ORCHESTRATOR_SECRET?.trim();
+  if (!sharedSecret) {
+    const err = new Error("OPTIMIZATION_ORCHESTRATOR_SECRET is required when url is configured");
+    (err as any).code = "E.CONFIG";
+    (err as any).status = 500;
     throw err;
   }
-  const data = (await res.json()) as OptimizationSubmitResponse;
-  return data;
+  let attempt = 0;
+  let lastError: unknown;
+  const requestId = generateId(REQUEST_ID_PREFIX);
+  while (attempt < MAX_REMOTE_RETRIES) {
+    attempt += 1;
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          [SHARED_SECRET_HEADER]: sharedSecret,
+          [OWNER_HEADER]: input.ownerId,
+          [REQUEST_ID_HEADER]: requestId,
+        },
+        body: JSON.stringify({
+          ownerId: input.ownerId,
+          versionId: input.versionId,
+          paramSpace: input.paramSpace,
+          normalizedParamSpace: input.normalized,
+          concurrencyLimit: input.concurrencyLimit,
+          earlyStopPolicy: input.earlyStopPolicy,
+          estimate: input.estimate,
+        }),
+      });
+      if (!res.ok) {
+        const error = await buildRemoteError(res);
+        if (res.status >= 500 && attempt < MAX_REMOTE_RETRIES) {
+          lastError = error;
+          await delay(Math.pow(2, attempt - 1) * REMOTE_RETRY_DELAY_MS);
+          continue;
+        }
+        throw error;
+      }
+      const data = (await res.json()) as OptimizationSubmitResponse;
+      return data;
+    } catch (err) {
+      lastError = err;
+      const isNetwork = err instanceof TypeError || (err as any)?.code === "ECONNREFUSED";
+      if (!isNetwork || attempt >= MAX_REMOTE_RETRIES) {
+        throw err;
+      }
+      await delay(Math.pow(2, attempt - 1) * REMOTE_RETRY_DELAY_MS);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Failed to contact orchestrator");
+}
+
+async function buildRemoteError(res: Response) {
+  const err = new Error("Failed to enqueue optimization job");
+  (err as any).code = res.status === 401 || res.status === 403 ? "E.FORBIDDEN" : "E.DEP_UPSTREAM";
+  (err as any).status = res.status >= 400 && res.status < 600 ? res.status : 502;
+  try {
+    const payload = await res.json();
+    (err as any).details = payload;
+  } catch {
+    // ignore json parse error
+  }
+  return err;
 }
 
 function createInMemory(input: OptimizationCreateInput): OptimizationSubmitResponse {
@@ -108,4 +152,8 @@ function generateId(prefix: string): string {
   const random = Math.random().toString(36).slice(2, 10);
   const time = Date.now().toString(36);
   return `${prefix}-${time}-${random}`;
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
