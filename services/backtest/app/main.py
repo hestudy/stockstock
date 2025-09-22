@@ -1,8 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 import structlog
 from datetime import datetime
-from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field
+from typing import Optional, Dict, Any, Literal
+from pydantic import BaseModel, Field, field_validator
 
 from .observability import (
     log_enqueue,
@@ -10,6 +10,11 @@ from .observability import (
     log_end,
     log_error,
     Timer,
+)
+from .orchestrator import (
+    create_optimization_job,
+    ParamInvalidError,
+    debug_jobs,
 )
 
 logger = structlog.get_logger()
@@ -92,3 +97,51 @@ async def error(req: ErrorReq):
         extra=req.extra,
     )
     return {"ok": True}
+
+
+class EarlyStopPolicyModel(BaseModel):
+    metric: str = Field(..., min_length=1)
+    threshold: float
+    mode: Literal["min", "max"]
+
+
+class OptimizationCreateReq(BaseModel):
+    ownerId: str = Field(..., min_length=1)
+    versionId: str = Field(..., min_length=1)
+    paramSpace: Dict[str, Any]
+    concurrencyLimit: int = Field(2, ge=1)
+    earlyStopPolicy: Optional[EarlyStopPolicyModel] = None
+    estimate: int = Field(..., ge=1)
+
+    @field_validator("paramSpace")
+    @classmethod
+    def validate_param_space(cls, value: Dict[str, Any]):
+        if not isinstance(value, dict) or not value:
+            raise ValueError("paramSpace must be a non-empty object")
+        return value
+
+
+@app.post("/internal/optimizations")
+async def optimizations(req: OptimizationCreateReq):
+    try:
+        payload = create_optimization_job(
+            owner_id=req.ownerId,
+            version_id=req.versionId,
+            param_space=req.paramSpace,
+            concurrency_limit=req.concurrencyLimit,
+            early_stop_policy=req.earlyStopPolicy.dict() if req.earlyStopPolicy else None,
+            estimate=req.estimate,
+        )
+        logger.info("optimization_job_created", job=payload, total_jobs=len(debug_jobs()))
+        return payload
+    except ParamInvalidError as exc:
+        raise HTTPException(
+            status_code=exc.status,
+            detail={"code": exc.code, "message": str(exc), "details": exc.details},
+        ) from exc
+    except Exception as exc:  # pragma: no cover - defensive path
+        logger.exception("optimization_job_failed", exc_info=exc)
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "E.INTERNAL", "message": "failed to create optimization job"},
+        ) from exc

@@ -1,4 +1,10 @@
-export type JobStatus = "queued" | "running" | "succeeded" | "failed";
+export type JobStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "early-stopped"
+  | "canceled";
 
 export type BacktestSubmitRequest = {
   versionId: string;

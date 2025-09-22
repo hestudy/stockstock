@@ -6,8 +6,29 @@ export type ApiError = {
     code?: string;
     requestId?: string;
     timestamp?: string;
+    details?: Record<string, any>;
   };
 };
+
+export function fail(
+  code: string,
+  message: string,
+  details?: Record<string, any>,
+  status = 400,
+) {
+  return NextResponse.json(
+    {
+      error: {
+        code,
+        message,
+        details,
+        requestId: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+      },
+    },
+    { status },
+  );
+}
 
 function requestIdFrom(req: Request): string | undefined {
   try {
@@ -32,6 +53,7 @@ export async function wrap(
         code: e?.code,
         requestId: requestIdFrom(req),
         timestamp: new Date().toISOString(),
+        details: e?.details,
       },
     };
     return NextResponse.json(body, { status });
