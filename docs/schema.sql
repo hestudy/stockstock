@@ -22,7 +22,8 @@ create type run_status as enum (
   'running',
   'succeeded',
   'failed',
-  'cancelled'
+  'early-stopped',
+  'canceled'
 );
 
 -- =============================
@@ -57,6 +58,23 @@ create index if not exists idx_strategies_owner on public.strategies(owner_id);
 create index if not exists idx_strategies_updated_at on public.strategies(updated_at desc);
 
 -- =============================
+-- Strategy Versions
+-- 策略版本/提交记录，引用源代码与依赖快照
+-- =============================
+create table if not exists public.strategy_versions (
+  id uuid primary key default uuid_generate_v4(),
+  strategy_id uuid not null references public.strategies(id) on delete cascade,
+  owner_id uuid not null references public.profiles(id) on delete cascade,
+  code_ref text,             -- 可指向 Supabase Storage 或 Git commit
+  requirements text[],       -- 依赖列表（可选）
+  metadata jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists idx_strategy_versions_strategy on public.strategy_versions(strategy_id);
+create index if not exists idx_strategy_versions_owner on public.strategy_versions(owner_id);
+
+-- =============================
 -- Backtests
 -- 一次“实验”的容器，可包含多次 run（参数不同）
 -- context 描述数据频率/标的集合/窗口等
@@ -82,6 +100,7 @@ create table if not exists public.backtest_runs (
   id uuid primary key default uuid_generate_v4(),
   backtest_id uuid not null references public.backtests(id) on delete cascade,
   owner_id uuid not null references public.profiles(id) on delete cascade,
+  strategy_version_id uuid references public.strategy_versions(id),
   status run_status not null default 'queued',
   params jsonb not null,          -- 参数字典
   budget_ms int,                  -- 预算时间（毫秒）
@@ -114,6 +133,23 @@ create index if not exists idx_metrics_run on public.metrics(run_id);
 create index if not exists idx_metrics_key on public.metrics(key);
 
 -- =============================
+-- Result Summaries
+-- 回测/寻优共享的摘要指标存储，避免重复写大字段
+-- =============================
+create table if not exists public.result_summaries (
+  id uuid primary key default uuid_generate_v4(),
+  owner_id uuid not null references public.profiles(id) on delete cascade,
+  source text,              -- backtest_run / optimization_task 等
+  metrics jsonb not null,
+  equity_curve_ref text,
+  trades_ref text,
+  artifacts jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists idx_result_summaries_owner on public.result_summaries(owner_id);
+
+-- =============================
 -- Artifacts (optional, additional)
 -- 如需对多类型产物做更结构化的索引
 -- =============================
@@ -129,6 +165,46 @@ create table if not exists public.artifacts (
 );
 create index if not exists idx_artifacts_run on public.artifacts(run_id);
 create index if not exists idx_artifacts_type on public.artifacts(type);
+
+-- =============================
+-- Optimization Jobs & Tasks
+-- 参数寻优父作业与子任务结构
+-- =============================
+create table if not exists public.optimization_jobs (
+  id uuid primary key default uuid_generate_v4(),
+  owner_id uuid not null references public.profiles(id) on delete cascade,
+  strategy_version_id uuid not null references public.strategy_versions(id),
+  param_space jsonb not null,
+  concurrency_limit int not null default 2 check (concurrency_limit > 0 and concurrency_limit <= 64),
+  early_stop_policy jsonb,
+  status run_status not null default 'queued',
+  total_tasks int,
+  estimate int,
+  summary jsonb,
+  result_summary_id uuid references public.result_summaries(id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists idx_opt_jobs_owner_created on public.optimization_jobs(owner_id, created_at desc);
+create index if not exists idx_opt_jobs_version on public.optimization_jobs(strategy_version_id);
+
+create table if not exists public.optimization_tasks (
+  id uuid primary key default uuid_generate_v4(),
+  job_id uuid not null references public.optimization_jobs(id) on delete cascade,
+  owner_id uuid not null references public.profiles(id) on delete cascade,
+  strategy_version_id uuid not null references public.strategy_versions(id),
+  param_set jsonb not null,
+  status run_status not null default 'queued',
+  progress real,
+  retries int not null default 0,
+  error jsonb,
+  result_summary_id uuid references public.result_summaries(id),
+  score double precision,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists idx_opt_tasks_job on public.optimization_tasks(job_id);
+create index if not exists idx_opt_tasks_owner on public.optimization_tasks(owner_id);
 
 -- =============================
 -- Helper Views (examples)
@@ -155,6 +231,10 @@ alter table public.backtests enable row level security;
 alter table public.backtest_runs enable row level security;
 alter table public.metrics enable row level security;
 alter table public.artifacts enable row level security;
+alter table public.strategy_versions enable row level security;
+alter table public.result_summaries enable row level security;
+alter table public.optimization_jobs enable row level security;
+alter table public.optimization_tasks enable row level security;
 
 drop policy if exists "profiles self access" on public.profiles;
 create policy "profiles self access" on public.profiles
@@ -181,6 +261,22 @@ drop policy if exists "artifacts by owner" on public.artifacts;
 create policy "artifacts by owner" on public.artifacts
   for all using (run_id in (select id from public.backtest_runs where owner_id = auth.uid()))
   with check (run_id in (select id from public.backtest_runs where owner_id = auth.uid()));
+
+drop policy if exists "strategy_versions by owner" on public.strategy_versions;
+create policy "strategy_versions by owner" on public.strategy_versions
+  for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
+
+drop policy if exists "result_summaries by owner" on public.result_summaries;
+create policy "result_summaries by owner" on public.result_summaries
+  for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
+
+drop policy if exists "optimization_jobs by owner" on public.optimization_jobs;
+create policy "optimization_jobs by owner" on public.optimization_jobs
+  for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
+
+drop policy if exists "optimization_tasks by owner" on public.optimization_tasks;
+create policy "optimization_tasks by owner" on public.optimization_tasks
+  for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
 
 -- =============================
 -- Seed Hints (optional)
