@@ -37,10 +37,11 @@ export default function BacktestsPage() {
       setMessage("已提交，正在跳转...");
       // 跳转到状态/详情页（1.4 将继续完善）
       router.push(`/backtests/${res.id}`);
-    } catch (e: any) {
-      const raw = typeof e?.message === "string" ? e.message : "出现了一点问题，请稍后再试。";
+    } catch (e: unknown) {
+      const err = e as { message?: string } | undefined;
+      const raw = typeof err?.message === "string" ? err.message : "出现了一点问题，请稍后再试。";
       setLastError(raw);
-      setMessage(mapErrorToMessage(raw));
+      setMessage(mapErrorToMessage(e));
     } finally {
       setSubmitting(false);
     }

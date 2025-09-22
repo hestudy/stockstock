@@ -2,10 +2,6 @@
 
 This file provides guidance and memory for Codex CLI.
 
-# Response Language
-
-始终使用中文进行回复。
-
 <!-- BEGIN: BMAD-AGENTS -->
 
 # BMAD-METHOD Agents and Tasks

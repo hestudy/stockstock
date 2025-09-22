@@ -1,6 +1,7 @@
 /* @vitest-environment jsdom */
 import { describe, it, expect } from "vitest";
 import { mapErrorToMessage } from "../utils/errorMapping";
+import { ApiClientError } from "../services/apiClient";
 
 describe("mapErrorToMessage", () => {
   describe("Authentication errors (401)", () => {
@@ -82,6 +83,13 @@ describe("mapErrorToMessage", () => {
       expect(mapErrorToMessage("upstream")).toContain("服务暂不可用");
       expect(mapErrorToMessage("bad gateway")).toContain("服务暂不可用");
       expect(mapErrorToMessage("service unavailable")).toContain("服务暂不可用");
+    });
+  });
+
+  describe("Structured ApiError inputs", () => {
+    it("maps error payload objects", () => {
+      expect(mapErrorToMessage({ error: { code: "RATE_LIMITED", message: "RATE_LIMITED" } })).toContain("请求过于频繁");
+      expect(mapErrorToMessage(new ApiClientError({ status: 401, message: "ignored" }))).toContain("未登录");
     });
   });
 

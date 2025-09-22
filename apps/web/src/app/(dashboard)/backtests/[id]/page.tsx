@@ -62,10 +62,11 @@ function usePolling(id: string) {
           stoppedRef.current = true; // 成功后停止轮询
           return;
         }
-      } catch (e: any) {
+      } catch (e: unknown) {
         if (!mounted) return;
-        const raw = typeof e?.message === "string" ? e.message : "获取状态失败";
-        setError(mapErrorToMessage(raw));
+        const err = e as { message?: string } | undefined;
+        const raw = typeof err?.message === "string" ? err.message : "获取状态失败";
+        setError(mapErrorToMessage(e) || raw);
       } finally {
         if (mounted && !stoppedRef.current) timer = setTimeout(tick, 1500);
       }

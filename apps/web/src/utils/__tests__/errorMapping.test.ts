@@ -1,10 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { mapErrorToMessage } from "../errorMapping";
+import { ApiClientError } from "../../services/apiClient";
 
 describe("errorMapping", () => {
   it("maps UNAUTHENTICATED/401", () => {
     expect(mapErrorToMessage("UNAUTHENTICATED")).toContain("未登录");
     expect(mapErrorToMessage("401 Unauthorized")).toContain("未登录");
+  });
+
+  it("maps ApiError payload code", () => {
+    expect(mapErrorToMessage({ error: { code: "UNAUTHENTICATED", message: "whatever" } })).toContain("未登录");
   });
   it("maps INVALID_ID/400", () => {
     expect(mapErrorToMessage("INVALID_ID")).toContain("参数不合法");
@@ -48,6 +53,14 @@ describe("errorMapping", () => {
     expect(mapErrorToMessage("503 Service Unavailable")).toContain("暂不可用");
     expect(mapErrorToMessage("504 Gateway Timeout")).toContain("暂不可用");
     expect(mapErrorToMessage("upstream connection error")).toContain("暂不可用");
+  });
+
+  it("maps ApiClientError by status and code", () => {
+    const statusErr = new ApiClientError({ status: 503, message: "SERVER_ERROR" });
+    expect(mapErrorToMessage(statusErr)).toContain("服务暂不可用");
+
+    const codeErr = new ApiClientError({ status: 409, message: "CONFLICT", code: "CONFLICT" });
+    expect(mapErrorToMessage(codeErr)).toContain("操作冲突");
   });
 
   it("maps network error variants", () => {
