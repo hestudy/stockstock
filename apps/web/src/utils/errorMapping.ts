@@ -14,10 +14,12 @@ const CODE_MAP: Record<string, string> = {
   NOT_FOUND: "资源不存在或已被删除。",
   RESOURCE_NOT_FOUND: "资源不存在或已被删除。",
   STRATEGY_NOT_FOUND: "资源不存在或已被删除。",
+  BACKTEST_NOT_FOUND: "资源不存在或已被删除。",
   INVALID_ID: "参数不合法，请检查后重试。",
   INVALID_INPUT: "参数不合法，请检查后重试。",
   VALIDATION_FAILED: "参数不合法，请检查后重试。",
   BAD_REQUEST: "参数不合法，请检查后重试。",
+  PARAM_ERROR: "参数不合法，请检查后重试。",
   RATE_LIMITED: "请求过于频繁，请稍后重试。",
   TOO_MANY_REQUESTS: "请求过于频繁，请稍后重试。",
   QUOTA_EXCEEDED: "请求过于频繁，请稍后重试。",
@@ -32,6 +34,7 @@ const CODE_MAP: Record<string, string> = {
   ALREADY_EXISTS: "操作冲突，请刷新后重试。",
   SERVICE_UNAVAILABLE: "服务暂不可用，请稍后再试。",
   UPSTREAM_UNAVAILABLE: "服务暂不可用，请稍后再试。",
+  UPSTREAM_ERROR: "服务暂不可用，请稍后再试。",
   INTERNAL_ERROR: "服务暂不可用，请稍后再试。",
   INTERNAL_SERVER_ERROR: "服务暂不可用，请稍后再试。",
   SERVER_ERROR: "服务暂不可用，请稍后再试。",
@@ -95,6 +98,62 @@ function normalize(raw: unknown): NormalizedError {
   return { message: String(raw) };
 }
 
+function messageForCodePattern(code: string): string | undefined {
+  const upper = code.toUpperCase();
+
+  if (upper.includes("UNAUTH") || upper.includes("AUTH_TOKEN")) {
+    return "未登录或会话已过期，请先登录。";
+  }
+  if (upper.includes("FORBID") || upper.includes("PERMISSION") || upper.includes("ACCESS_DENIED")) {
+    return "无权限访问，如需权限请联系管理员。";
+  }
+  if (upper.includes("NOT_FOUND") || upper.endsWith("_MISSING") || upper.includes("NO_SUCH")) {
+    return "资源不存在或已被删除。";
+  }
+  if (
+    upper.includes("INVALID") ||
+    upper.includes("VALIDATION") ||
+    upper.includes("PARAM") ||
+    upper.includes("BAD_REQUEST") ||
+    upper.includes("FORMAT") ||
+    upper.includes("MALFORMED")
+  ) {
+    return "参数不合法，请检查后重试。";
+  }
+  if (
+    upper.includes("RATE") ||
+    upper.includes("THROTTL") ||
+    upper.includes("QUOTA") ||
+    upper.includes("TOO_MANY") ||
+    upper.includes("LIMIT")
+  ) {
+    return "请求过于频繁，请稍后重试。";
+  }
+  if (upper.includes("TIMEOUT") || upper.includes("TIMED_OUT") || upper.includes("DEADLINE")) {
+    return "请求超时，请检查网络后重试。";
+  }
+  if (
+    upper.includes("NETWORK") ||
+    upper.includes("CONNECTION") ||
+    upper.includes("ECONN") ||
+    upper.includes("EHOST") ||
+    upper.includes("ENET")
+  ) {
+    return "网络异常，请检查网络连接后重试。";
+  }
+  if (
+    upper.includes("UPSTREAM") ||
+    upper.includes("INTERNAL") ||
+    upper.includes("SERVER") ||
+    upper.includes("UNAVAILABLE") ||
+    upper.includes("FAILURE") ||
+    upper.includes("DOWN")
+  ) {
+    return "服务暂不可用，请稍后再试。";
+  }
+  return undefined;
+}
+
 export function mapErrorToMessage(raw: unknown): string {
   const normalized = normalize(raw);
   const code = normalized.code?.toUpperCase();
@@ -104,6 +163,11 @@ export function mapErrorToMessage(raw: unknown): string {
 
   if (code && CODE_MAP[code]) {
     return CODE_MAP[code];
+  }
+
+  if (code) {
+    const fromPattern = messageForCodePattern(code);
+    if (fromPattern) return fromPattern;
   }
 
   if (typeof status === "number" && STATUS_MAP[status]) {

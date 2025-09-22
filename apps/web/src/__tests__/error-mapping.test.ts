@@ -35,6 +35,7 @@ describe("mapErrorToMessage", () => {
       expect(mapErrorToMessage("validation failed")).toContain("参数不合法");
       expect(mapErrorToMessage("invalid_id")).toContain("参数不合法");
       expect(mapErrorToMessage("invalid id")).toContain("参数不合法");
+      expect(mapErrorToMessage({ error: { code: "PARAM_ERROR" } })).toContain("参数不合法");
     });
   });
 
@@ -83,6 +84,7 @@ describe("mapErrorToMessage", () => {
       expect(mapErrorToMessage("upstream")).toContain("服务暂不可用");
       expect(mapErrorToMessage("bad gateway")).toContain("服务暂不可用");
       expect(mapErrorToMessage("service unavailable")).toContain("服务暂不可用");
+      expect(mapErrorToMessage({ error: { code: "UPSTREAM_ERROR" } })).toContain("服务暂不可用");
     });
   });
 
@@ -90,6 +92,9 @@ describe("mapErrorToMessage", () => {
     it("maps error payload objects", () => {
       expect(mapErrorToMessage({ error: { code: "RATE_LIMITED", message: "RATE_LIMITED" } })).toContain("请求过于频繁");
       expect(mapErrorToMessage(new ApiClientError({ status: 401, message: "ignored" }))).toContain("未登录");
+      expect(mapErrorToMessage({ error: { code: "BACKTEST_NOT_FOUND" } })).toContain("资源不存在");
+      expect(mapErrorToMessage({ error: { code: "ACCESS_DENIED" } })).toContain("无权限");
+      expect(mapErrorToMessage({ error: { code: "AUTH_TOKEN_EXPIRED" } })).toContain("未登录");
     });
   });
 

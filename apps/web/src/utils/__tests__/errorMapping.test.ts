@@ -14,6 +14,7 @@ describe("errorMapping", () => {
   it("maps INVALID_ID/400", () => {
     expect(mapErrorToMessage("INVALID_ID")).toContain("参数不合法");
     expect(mapErrorToMessage("400 Bad Request")).toContain("参数不合法");
+    expect(mapErrorToMessage({ error: { code: "PARAM_ERROR" } })).toContain("参数不合法");
   });
   it("maps RATE_LIMITED/429", () => {
     expect(mapErrorToMessage("RATE_LIMITED")).toContain("请求过于频繁");
@@ -53,6 +54,7 @@ describe("errorMapping", () => {
     expect(mapErrorToMessage("503 Service Unavailable")).toContain("暂不可用");
     expect(mapErrorToMessage("504 Gateway Timeout")).toContain("暂不可用");
     expect(mapErrorToMessage("upstream connection error")).toContain("暂不可用");
+    expect(mapErrorToMessage({ error: { code: "UPSTREAM_ERROR" } })).toContain("暂不可用");
   });
 
   it("maps ApiClientError by status and code", () => {
@@ -61,6 +63,9 @@ describe("errorMapping", () => {
 
     const codeErr = new ApiClientError({ status: 409, message: "CONFLICT", code: "CONFLICT" });
     expect(mapErrorToMessage(codeErr)).toContain("操作冲突");
+    expect(mapErrorToMessage({ error: { code: "BACKTEST_NOT_FOUND" } })).toContain("资源不存在");
+    expect(mapErrorToMessage({ error: { code: "ACCESS_DENIED" } })).toContain("无权限");
+    expect(mapErrorToMessage({ error: { code: "AUTH_TOKEN_EXPIRED" } })).toContain("未登录");
   });
 
   it("maps network error variants", () => {
