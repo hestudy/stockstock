@@ -197,7 +197,10 @@ create table if not exists public.optimization_tasks (
   status run_status not null default 'queued',
   progress real,
   retries int not null default 0,
+  next_run_at timestamptz,
+  throttled boolean not null default false,
   error jsonb,
+  last_error jsonb,
   result_summary_id uuid references public.result_summaries(id),
   score double precision,
   created_at timestamptz not null default now(),
@@ -205,6 +208,7 @@ create table if not exists public.optimization_tasks (
 );
 create index if not exists idx_opt_tasks_job on public.optimization_tasks(job_id);
 create index if not exists idx_opt_tasks_owner on public.optimization_tasks(owner_id);
+create index if not exists idx_opt_tasks_status_next on public.optimization_tasks(status, next_run_at);
 
 -- =============================
 -- Helper Views (examples)

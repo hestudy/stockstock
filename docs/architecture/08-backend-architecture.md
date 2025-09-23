@@ -103,7 +103,10 @@ create table if not exists optimization_tasks (
   status text not null,
   progress real,
   retries int not null default 0,
+  next_run_at timestamptz,
+  throttled boolean not null default false,
   error jsonb,
+  last_error jsonb,
   result_summary_id uuid,
   score double precision,
   created_at timestamptz not null default now(),
@@ -122,6 +125,7 @@ create table if not exists result_summaries (
 
 create index if not exists idx_jobs_owner_created on backtest_jobs(owner_id, created_at desc);
 create index if not exists idx_opt_tasks_job on optimization_tasks(job_id);
+create index if not exists idx_opt_tasks_status_next on optimization_tasks(status, next_run_at);
 ```
 
 索引与性能要点
