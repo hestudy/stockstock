@@ -7,6 +7,7 @@ import os
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from threading import RLock
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
 from .observability import emit_metric
@@ -104,6 +105,7 @@ _JOBS: Dict[str, OptimizationJob] = {}
 _TASKS: Dict[str, Dict[str, OptimizationTask]] = {}
 _TASK_ORDER: Dict[str, List[str]] = {}
 _JOB_ORDER: List[str] = []
+_STORE_LOCK = RLock()
 
 
 # ==== Environment helpers ====
@@ -295,11 +297,12 @@ def create_optimization_job(
         total_tasks=total_tasks,
         summary=_initial_summary(total_tasks, tasks),
     )
-    _JOBS[job_id] = job
-    _TASKS[job_id] = {task.id: task for task in tasks}
-    _TASK_ORDER[job_id] = [task.id for task in tasks]
-    if job_id not in _JOB_ORDER:
-        _JOB_ORDER.append(job_id)
+    with _STORE_LOCK:
+        _JOBS[job_id] = job
+        _TASKS[job_id] = {task.id: task for task in tasks}
+        _TASK_ORDER[job_id] = [task.id for task in tasks]
+        if job_id not in _JOB_ORDER:
+            _JOB_ORDER.append(job_id)
     if job.summary.throttled > 0:
         emit_metric(
             "throttled_requests",
@@ -314,42 +317,44 @@ def create_optimization_job(
 
 
 def dequeue_next(owner_id: str, job_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    now = datetime.utcnow()
-    job_ids = [job_id] if job_id else list(_JOB_ORDER)
-    for jid in job_ids:
-        job = _JOBS.get(jid)
-        if not job or job.owner_id != owner_id:
-            continue
-        _activate_slots(job)
-        running = _count_status(job.id, "running")
-        if running >= job.concurrency_limit:
-            continue
-        for tid in _TASK_ORDER[jid]:
-            task = _TASKS[jid][tid]
-            if task.status == "queued" and not task.throttled and task.next_run_at <= now:
-                task.status = "running"
-                task.progress = 0.0
-                task.updated_at = iso_now()
-                task.last_error = None
-                job.status = "running"
-                _refresh_summary(job)
-                return _task_to_dict(task)
+    with _STORE_LOCK:
+        now = datetime.utcnow()
+        job_ids = [job_id] if job_id else list(_JOB_ORDER)
+        for jid in job_ids:
+            job = _JOBS.get(jid)
+            if not job or job.owner_id != owner_id:
+                continue
+            _activate_slots(job)
+            running = _count_status(job.id, "running")
+            if running >= job.concurrency_limit:
+                continue
+            for tid in _TASK_ORDER[jid]:
+                task = _TASKS[jid][tid]
+                if task.status == "queued" and not task.throttled and task.next_run_at <= now:
+                    task.status = "running"
+                    task.progress = 0.0
+                    task.updated_at = iso_now()
+                    task.last_error = None
+                    job.status = "running"
+                    _refresh_summary(job)
+                    return _task_to_dict(task)
     return None
 
 
 def mark_task_succeeded(job_id: str, task_id: str, score: Optional[float] = None) -> Dict[str, Any]:
-    job, task = _get_job_and_task(job_id, task_id)
-    task.status = "succeeded"
-    task.score = score
-    task.throttled = False
-    task.progress = 1.0
-    task.updated_at = iso_now()
-    task.next_run_at = datetime.utcnow()
-    task.error = None
-    task.last_error = None
-    _activate_slots(job)
-    _refresh_summary(job)
-    return _task_to_dict(task)
+    with _STORE_LOCK:
+        job, task = _get_job_and_task(job_id, task_id)
+        task.status = "succeeded"
+        task.score = score
+        task.throttled = False
+        task.progress = 1.0
+        task.updated_at = iso_now()
+        task.next_run_at = datetime.utcnow()
+        task.error = None
+        task.last_error = None
+        _activate_slots(job)
+        _refresh_summary(job)
+        return _task_to_dict(task)
 
 
 def mark_task_failed(
@@ -359,61 +364,63 @@ def mark_task_failed(
     error_type: str,
     message: str,
 ) -> Dict[str, Any]:
-    job, task = _get_job_and_task(job_id, task_id)
-    now = datetime.utcnow()
-    task.updated_at = iso_now()
-    task.last_error = {"code": error_type, "message": message}
-    task.error = task.last_error
-    retryable = error_type in {"UPSTREAM_ERROR", "INTERNAL_ERROR"}
-    max_retries = get_max_retries()
-    if task.status == "running":
-        task.status = "queued"
-    if retryable and task.retries < max_retries:
-        task.retries += 1
-        delay = get_retry_base_seconds() * (2 ** (task.retries - 1))
-        task.next_run_at = now + timedelta(seconds=delay)
-        task.throttled = False
-        task.progress = None
-    else:
-        task.status = "failed"
-        task.throttled = False
-        task.next_run_at = now
-    _activate_slots(job)
-    _refresh_summary(job)
-    return _task_to_dict(task)
+    with _STORE_LOCK:
+        job, task = _get_job_and_task(job_id, task_id)
+        now = datetime.utcnow()
+        task.updated_at = iso_now()
+        task.last_error = {"code": error_type, "message": message}
+        task.error = task.last_error
+        retryable = error_type in {"UPSTREAM_ERROR", "INTERNAL_ERROR"}
+        max_retries = get_max_retries()
+        if task.status == "running":
+            task.status = "queued"
+        if retryable and task.retries < max_retries:
+            task.retries += 1
+            delay = get_retry_base_seconds() * (2 ** (task.retries - 1))
+            task.next_run_at = now + timedelta(seconds=delay)
+            task.throttled = False
+            task.progress = None
+        else:
+            task.status = "failed"
+            task.throttled = False
+            task.next_run_at = now
+        _activate_slots(job)
+        _refresh_summary(job)
+        return _task_to_dict(task)
 
 
 def get_job_status(job_id: str, owner_id: str) -> Dict[str, Any]:
-    job = _JOBS.get(job_id)
-    if not job:
-        raise JobAccessError("optimization job not found", "E.NOT_FOUND", 404, {"jobId": job_id})
-    if job.owner_id != owner_id:
-        raise JobAccessError(
-            "job does not belong to current owner",
-            "E.FORBIDDEN",
-            403,
-            {"jobId": job_id, "ownerId": owner_id},
-        )
-    _refresh_summary(job)
-    summary = job.summary
-    return {
-        "id": job.id,
-        "status": job.status,
-        "totalTasks": job.total_tasks,
-        "concurrencyLimit": job.concurrency_limit,
-        "summary": {
-            "total": summary.total,
-            "finished": summary.finished,
-            "running": summary.running,
-            "throttled": summary.throttled,
-            "topN": summary.top_n,
-        },
-        "diagnostics": {
-            "throttled": summary.throttled > 0,
-            "queueDepth": summary.throttled,
-            "running": summary.running,
-        },
-    }
+    with _STORE_LOCK:
+        job = _JOBS.get(job_id)
+        if not job:
+            raise JobAccessError("optimization job not found", "E.NOT_FOUND", 404, {"jobId": job_id})
+        if job.owner_id != owner_id:
+            raise JobAccessError(
+                "job does not belong to current owner",
+                "E.FORBIDDEN",
+                403,
+                {"jobId": job_id, "ownerId": owner_id},
+            )
+        _refresh_summary(job)
+        summary = job.summary
+        return {
+            "id": job.id,
+            "status": job.status,
+            "totalTasks": job.total_tasks,
+            "concurrencyLimit": job.concurrency_limit,
+            "summary": {
+                "total": summary.total,
+                "finished": summary.finished,
+                "running": summary.running,
+                "throttled": summary.throttled,
+                "topN": summary.top_n,
+            },
+            "diagnostics": {
+                "throttled": summary.throttled > 0,
+                "queueDepth": summary.throttled,
+                "running": summary.running,
+            },
+        }
 
 
 # ==== Internal helpers ====
@@ -540,16 +547,19 @@ def _task_to_dict(task: OptimizationTask) -> Dict[str, Any]:
 # ==== Debug helpers ====
 
 def debug_reset():
-    _JOBS.clear()
-    _TASKS.clear()
-    _TASK_ORDER.clear()
-    _JOB_ORDER.clear()
+    with _STORE_LOCK:
+        _JOBS.clear()
+        _TASKS.clear()
+        _TASK_ORDER.clear()
+        _JOB_ORDER.clear()
 
 
 def debug_jobs() -> Dict[str, OptimizationJob]:
-    return _JOBS
+    with _STORE_LOCK:
+        return dict(_JOBS)
 
 
 def debug_tasks(job_id: str) -> List[OptimizationTask]:
-    tasks = _TASKS.get(job_id, {})
-    return list(tasks.values())
+    with _STORE_LOCK:
+        tasks = _TASKS.get(job_id, {})
+        return list(tasks.values())

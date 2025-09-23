@@ -1,4 +1,5 @@
 import os
+import threading
 from datetime import datetime, timedelta
 
 import pytest
@@ -200,3 +201,36 @@ def test_get_job_status_enforces_owner():
     with pytest.raises(JobAccessError) as exc:
         get_job_status(job_id, "other")
     assert exc.value.code == "E.FORBIDDEN"
+
+
+def test_thread_safe_dequeue_and_update(monkeypatch):
+    monkeypatch.setenv("OPT_PARAM_SPACE_MAX", "32")
+    job = create_optimization_job(
+        owner_id="owner-1",
+        version_id="v-1",
+        param_space={"x": [1, 2, 3]},
+        concurrency_limit=2,
+    )
+    job_id = job["id"]
+
+    results = []
+
+    def fetch():
+        task = dequeue_next("owner-1", job_id)
+        results.append(task)
+
+    threads = [threading.Thread(target=fetch) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    returned_ids = {task["id"] for task in results if task}
+    assert len(returned_ids) == 2
+
+    for task in results:
+        if task:
+            mark_task_succeeded(job_id, task["id"], score=1.0)
+
+    status = get_job_status(job_id, "owner-1")
+    assert status["summary"]["finished"] >= 2
