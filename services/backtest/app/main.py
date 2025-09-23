@@ -14,9 +14,11 @@ from .observability import (
     Timer,
 )
 from .orchestrator import (
-    create_optimization_job,
+    JobAccessError,
     ParamInvalidError,
+    create_optimization_job,
     debug_jobs,
+    get_job_status,
 )
 
 logger = structlog.get_logger()
@@ -168,4 +170,25 @@ async def optimizations(
         raise HTTPException(
             status_code=500,
             detail={"code": "E.INTERNAL", "message": "failed to create optimization job"},
+        ) from exc
+
+
+@app.get("/internal/optimizations/{job_id}/status")
+async def optimization_status(
+    job_id: str,
+    _secret: None = Depends(require_internal_secret),
+    owner_header: Optional[str] = Header(None, alias="x-owner-id"),
+):
+    if not owner_header:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "E.PARAM_INVALID", "message": "x-owner-id header required"},
+        )
+    try:
+        payload = get_job_status(job_id, owner_header)
+        return payload
+    except JobAccessError as exc:
+        raise HTTPException(
+            status_code=exc.status,
+            detail={"code": exc.code, "message": str(exc), "details": exc.details},
         ) from exc

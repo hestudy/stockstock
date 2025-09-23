@@ -1,4 +1,10 @@
-import type { OptimizationJob, OptimizationSubmitResponse } from "@shared/index";
+import type {
+  OptimizationJob,
+  OptimizationStatus,
+  OptimizationSubmitResponse,
+  OptimizationSummary,
+  OptimizationTask,
+} from "@shared/index";
 import type { NormalizedParamSpace, ParamSpace } from "./paramSpace";
 
 const STORE_KEY = Symbol.for("opt.jobs.store");
@@ -8,9 +14,17 @@ const OWNER_HEADER = "x-owner-id";
 const REQUEST_ID_HEADER = "x-request-id";
 const MAX_REMOTE_RETRIES = 3;
 const REMOTE_RETRY_DELAY_MS = 200;
+const MAX_IN_MEMORY_TASKS = 1000;
+const TOP_N_LIMIT = 5;
+
+// ==== In-memory store (development & tests) ====
+type InMemoryJobState = {
+  job: OptimizationJob;
+  tasks: OptimizationTask[];
+};
 
 type InMemoryStore = {
-  jobs: Map<string, OptimizationJob>;
+  jobs: Map<string, InMemoryJobState>;
 };
 
 function getStore(): InMemoryStore {
@@ -21,6 +35,7 @@ function getStore(): InMemoryStore {
   return globalStore[STORE_KEY]!;
 }
 
+// ==== Public API ====
 export type OptimizationCreateInput = {
   ownerId: string;
   versionId: string;
@@ -41,6 +56,18 @@ export async function createOptimizationJob(
   return createInMemory(input);
 }
 
+export async function getOptimizationStatus(
+  ownerId: string,
+  jobId: string,
+): Promise<OptimizationStatus> {
+  const target = process.env.OPTIMIZATION_ORCHESTRATOR_URL?.trim();
+  if (target) {
+    return fetchRemoteStatus(target, ownerId, jobId);
+  }
+  return getInMemoryStatus(ownerId, jobId);
+}
+
+// ==== Remote orchestrator helpers ====
 async function sendToRemote(
   baseUrl: string,
   input: OptimizationCreateInput,
@@ -48,7 +75,9 @@ async function sendToRemote(
   const url = new URL("/internal/optimizations", baseUrl).toString();
   const sharedSecret = process.env.OPTIMIZATION_ORCHESTRATOR_SECRET?.trim();
   if (!sharedSecret) {
-    const err = new Error("OPTIMIZATION_ORCHESTRATOR_SECRET is required when url is configured");
+    const err = new Error(
+      "OPTIMIZATION_ORCHESTRATOR_SECRET is required when url is configured",
+    );
     (err as any).code = "E.CONFIG";
     (err as any).status = 500;
     throw err;
@@ -100,6 +129,27 @@ async function sendToRemote(
   throw lastError instanceof Error ? lastError : new Error("Failed to contact orchestrator");
 }
 
+async function fetchRemoteStatus(
+  baseUrl: string,
+  ownerId: string,
+  jobId: string,
+): Promise<OptimizationStatus> {
+  const url = new URL(`/internal/optimizations/${jobId}/status`, baseUrl).toString();
+  const sharedSecret = process.env.OPTIMIZATION_ORCHESTRATOR_SECRET?.trim();
+  const headers: Record<string, string> = {
+    [OWNER_HEADER]: ownerId,
+    [REQUEST_ID_HEADER]: generateId(REQUEST_ID_PREFIX),
+  };
+  if (sharedSecret) {
+    headers[SHARED_SECRET_HEADER] = sharedSecret;
+  }
+  const res = await fetch(url, { method: "GET", headers });
+  if (!res.ok) {
+    throw await buildRemoteError(res);
+  }
+  return (await res.json()) as OptimizationStatus;
+}
+
 async function buildRemoteError(res: Response) {
   let payload: unknown;
   try {
@@ -112,7 +162,7 @@ async function buildRemoteError(res: Response) {
   const remoteCode = typeof detail?.code === "string" ? detail.code : undefined;
   const remoteMessage = typeof detail?.message === "string" ? detail.message : undefined;
 
-  const err = new Error(remoteMessage ?? "Failed to enqueue optimization job");
+  const err = new Error(remoteMessage ?? "Failed to interact with orchestrator");
   const fallbackCode = res.status === 401 || res.status === 403 ? "E.FORBIDDEN" : "E.DEP_UPSTREAM";
 
   (err as any).code = remoteCode ?? fallbackCode;
@@ -131,9 +181,12 @@ async function buildRemoteError(res: Response) {
   return err;
 }
 
+// ==== In-memory implementation ====
 function createInMemory(input: OptimizationCreateInput): OptimizationSubmitResponse {
   const id = generateId("opt");
   const now = new Date().toISOString();
+  const tasks = buildInMemoryTasks(id, input, now);
+  const totalTasks = tasks.length;
   const job: OptimizationJob = {
     id,
     ownerId: input.ownerId,
@@ -142,18 +195,150 @@ function createInMemory(input: OptimizationCreateInput): OptimizationSubmitRespo
     concurrencyLimit: input.concurrencyLimit,
     earlyStopPolicy: input.earlyStopPolicy,
     status: "queued",
-    totalTasks: input.estimate,
+    totalTasks,
     createdAt: now,
     updatedAt: now,
+    summary: initializeSummary(totalTasks, tasks),
   };
   const store = getStore();
-  store.jobs.set(id, job);
-  return { id, status: job.status };
+  store.jobs.set(id, { job, tasks });
+  const throttled = !!(job.summary && job.summary.throttled > 0);
+  return { id, status: job.status, throttled };
 }
 
+function getInMemoryStatus(ownerId: string, jobId: string): OptimizationStatus {
+  const store = getStore();
+  const state = store.jobs.get(jobId);
+  if (!state) {
+    const err = new Error("optimization job not found");
+    (err as any).code = "E.NOT_FOUND";
+    (err as any).status = 404;
+    throw err;
+  }
+  if (state.job.ownerId !== ownerId) {
+    const err = new Error("job does not belong to current owner");
+    (err as any).code = "E.FORBIDDEN";
+    (err as any).status = 403;
+    throw err;
+  }
+  refreshSummary(state);
+  const summary = state.job.summary!;
+  return {
+    id: state.job.id,
+    status: state.job.status,
+    totalTasks: state.job.totalTasks,
+    concurrencyLimit: state.job.concurrencyLimit,
+    summary,
+    diagnostics: {
+      throttled: summary.throttled > 0,
+      queueDepth: summary.throttled,
+      running: summary.running,
+    },
+  };
+}
+
+function buildInMemoryTasks(
+  jobId: string,
+  input: OptimizationCreateInput,
+  createdAt: string,
+): OptimizationTask[] {
+  const combos = expandNormalizedSpace(input.normalized);
+  const tasks: OptimizationTask[] = [];
+  const limit = Math.min(combos.length, MAX_IN_MEMORY_TASKS);
+  for (let i = 0; i < limit; i += 1) {
+    const params = combos[i];
+    const throttled = i >= input.concurrencyLimit;
+    tasks.push({
+      id: generateId("opt-task"),
+      jobId,
+      ownerId: input.ownerId,
+      versionId: input.versionId,
+      params,
+      status: "queued",
+      retries: 0,
+      createdAt,
+      updatedAt: createdAt,
+      throttled,
+      nextRunAt: createdAt,
+    });
+  }
+  return tasks;
+}
+
+function expandNormalizedSpace(normalized: NormalizedParamSpace): Record<string, unknown>[] {
+  const entries = Object.entries(normalized ?? {});
+  if (entries.length === 0) return [];
+  const [firstKey, firstValues] = entries[0];
+  let combos = (firstValues as unknown[]).map((value) => ({ [firstKey]: value }));
+  for (let i = 1; i < entries.length; i += 1) {
+    const [key, values] = entries[i];
+    const newCombos: Record<string, unknown>[] = [];
+    for (const combo of combos) {
+      for (const value of values as unknown[]) {
+        newCombos.push({ ...combo, [key]: value });
+      }
+    }
+    combos = newCombos;
+    if (combos.length > MAX_IN_MEMORY_TASKS * 2) {
+      // prevent explosion; caller will slice later
+      break;
+    }
+  }
+  return combos;
+}
+
+function initializeSummary(total: number, tasks: OptimizationTask[]): OptimizationSummary {
+  const running = tasks.filter((task) => task.status === "running").length;
+  const throttled = tasks.filter((task) => task.throttled).length;
+  return {
+    total,
+    finished: 0,
+    running,
+    throttled,
+    topN: [],
+  };
+}
+
+function refreshSummary(state: InMemoryJobState) {
+  const { tasks, job } = state;
+  const finished = tasks.filter((task) =>
+    task.status === "succeeded" ||
+    task.status === "failed" ||
+    task.status === "early-stopped" ||
+    task.status === "canceled",
+  ).length;
+  const running = tasks.filter((task) => task.status === "running").length;
+  const throttled = tasks.filter((task) => task.throttled).length;
+  const topCandidates = tasks
+    .filter((task) => typeof task.score === "number")
+    .sort((a, b) => (b.score ?? -Infinity) - (a.score ?? -Infinity))
+    .slice(0, TOP_N_LIMIT)
+    .map((task) => ({ taskId: task.id, score: task.score as number }));
+  job.summary = {
+    total: job.totalTasks,
+    finished,
+    running,
+    throttled,
+    topN: topCandidates,
+  };
+  job.updatedAt = new Date().toISOString();
+  if (running > 0) {
+    job.status = "running";
+  } else if (finished >= job.totalTasks) {
+    job.status = "succeeded";
+  }
+}
+
+// ==== Debug helpers for tests ====
 export function debugListJobs(): OptimizationJob[] {
   const store = getStore();
-  return Array.from(store.jobs.values());
+  return Array.from(store.jobs.values()).map((state) => state.job);
+}
+
+export function debugListTasks(jobId: string): OptimizationTask[] {
+  const store = getStore();
+  const state = store.jobs.get(jobId);
+  return state ? [...state.tasks] : [];
 }
 
 export function debugResetJobs() {
@@ -161,6 +346,7 @@ export function debugResetJobs() {
   store.jobs.clear();
 }
 
+// ==== Utilities ====
 function generateId(prefix: string): string {
   const g: any = globalThis as any;
   const randomUUID = g?.crypto?.randomUUID?.bind(g.crypto);

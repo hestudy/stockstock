@@ -4,12 +4,12 @@ import type {
   OptimizationSubmitRequest,
   OptimizationSubmitResponse,
 } from "@shared/index";
-import { getOwner } from "../../_lib/auth";
 import { fail, wrap } from "../../_lib/handler";
 import { timeHttp } from "../../_lib/otel";
 import { createOptimizationJob } from "./orchestratorClient";
 import { getParamSpaceLimit, summarizeParamSpace } from "./paramSpace";
 import { assertVersionOwnership } from "./versionOwnership";
+import { resolveOwnerId } from "./owner";
 
 const ROUTE = "/api/v1/optimizations";
 const DEFAULT_CONCURRENCY_LIMIT = 2;
@@ -18,7 +18,7 @@ const MAX_CONCURRENCY_LIMIT = 16;
 export async function POST(req: Request) {
   return wrap(req, async () =>
     timeHttp(ROUTE, "POST", async () => {
-      const ownerId = await resolveOwner();
+      const ownerId = await resolveOwnerId();
       const body = await parseJson(req);
       const normalized = summarizeParamSpace(body.paramSpace);
       const limit = getParamSpaceLimit();
@@ -47,28 +47,15 @@ export async function POST(req: Request) {
       const payload: OptimizationSubmitResponse = {
         id: response.id,
         status: response.status,
+        throttled: response.throttled,
       };
       const res = NextResponse.json(payload, { status: 202 });
       res.headers.set("x-param-space-estimate", String(normalized.estimate));
       res.headers.set("x-concurrency-limit", String(concurrencyLimit));
+      res.headers.set("x-queue-throttled", response.throttled ? "1" : "0");
       return res;
     }, (res) => (res as Response).status ?? 202),
   );
-}
-
-async function resolveOwner(): Promise<string> {
-  if (process.env.E2E_AUTH_BYPASS === "1") {
-    return "test-owner";
-  }
-  try {
-    const owner = await getOwner();
-    return owner.ownerId;
-  } catch (err: any) {
-    const error = new Error("authentication required");
-    (error as any).code = "E.AUTH";
-    (error as any).status = 401;
-    throw error;
-  }
 }
 
 async function parseJson(req: Request): Promise<OptimizationSubmitRequest> {

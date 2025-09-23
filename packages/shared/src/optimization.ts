@@ -18,12 +18,32 @@ export type OptimizationSubmitRequest = {
 export type OptimizationSubmitResponse = {
   id: string;
   status: JobStatus;
+  throttled?: boolean;
 };
+
+export type OptimizationTopNEntry = { taskId: string; score: number };
 
 export type OptimizationSummary = {
   total: number;
   finished: number;
-  topN: Array<{ taskId: string; score: number }>;
+  running: number;
+  throttled: number;
+  topN: OptimizationTopNEntry[];
+};
+
+export type OptimizationDiagnostics = {
+  throttled: boolean;
+  queueDepth: number;
+  running: number;
+};
+
+export type OptimizationStatus = {
+  id: string;
+  status: JobStatus;
+  totalTasks: number;
+  concurrencyLimit: number;
+  summary: OptimizationSummary;
+  diagnostics: OptimizationDiagnostics;
 };
 
 export type OptimizationJob = {
@@ -52,6 +72,9 @@ export type OptimizationTask = {
   error?: { code: string; message: string };
   resultSummaryId?: string;
   score?: number;
+  throttled?: boolean;
+  nextRunAt?: string;
+  lastError?: { code: string; message: string };
   createdAt: string;
   updatedAt: string;
 };

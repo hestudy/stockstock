@@ -48,14 +48,18 @@ describe("POST /api/v1/optimizations", () => {
     const payload = (await res.json()) as any;
     expect(payload).toHaveProperty("id");
     expect(payload.status).toBe("queued");
+    expect(payload.throttled).toBe(true);
     const jobs = debugListJobs();
     expect(jobs).toHaveLength(1);
     expect(jobs[0].ownerId).toBe("test-owner");
     expect(jobs[0].concurrencyLimit).toBe(4);
     expect(jobs[0].earlyStopPolicy).toEqual({ metric: "sharpe", threshold: 1.2, mode: "max" });
     expect(jobs[0].totalTasks).toBe(9);
+    expect(jobs[0].summary?.running).toBe(0);
+    expect(jobs[0].summary?.throttled).toBe(5);
     expect(res.headers.get("x-param-space-estimate")).toBe("9");
     expect(res.headers.get("x-concurrency-limit")).toBe("4");
+    expect(res.headers.get("x-queue-throttled")).toBe("1");
   });
 
   it("rejects when param space exceeds limit", async () => {
@@ -172,6 +176,7 @@ describe("POST /api/v1/optimizations", () => {
       expect(payload.id).toBe("remote-job");
       expect(payload.status).toBe("queued");
       expect(debugListJobs()).toHaveLength(0);
+      expect(res.headers.get("x-queue-throttled")).toBe("0");
     } finally {
       fetchSpy.mockRestore();
     }
