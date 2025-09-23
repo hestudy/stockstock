@@ -48,7 +48,13 @@ def cleanup_env():
         os.environ["OPT_MAX_RETRIES"] = prev_max_retries
 
 
-def test_create_job_initializes_summary_and_tasks():
+def test_create_job_initializes_summary_and_tasks(monkeypatch):
+    captured_metrics = []
+
+    def fake_metric(name, value, tags=None):
+        captured_metrics.append((name, value, tags))
+
+    monkeypatch.setattr("services.backtest.app.orchestrator.emit_metric", fake_metric)
     result = create_optimization_job(
         owner_id="owner-1",
         version_id="v-1",
@@ -75,6 +81,7 @@ def test_create_job_initializes_summary_and_tasks():
     assert len(ready) == 2
     throttled = [task for task in tasks if task.throttled]
     assert len(throttled) == 4
+    assert any(name == "throttled_requests" and value == 4 for name, value, _ in captured_metrics)
 
 
 def test_create_job_respects_param_limit():

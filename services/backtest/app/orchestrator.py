@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
+from .observability import emit_metric
+
 JobStatus = str
 DEFAULT_STATUS: JobStatus = "queued"
 DEFAULT_LIMIT = 500
@@ -298,6 +300,12 @@ def create_optimization_job(
     _TASK_ORDER[job_id] = [task.id for task in tasks]
     if job_id not in _JOB_ORDER:
         _JOB_ORDER.append(job_id)
+    if job.summary.throttled > 0:
+        emit_metric(
+            "throttled_requests",
+            job.summary.throttled,
+            tags={"jobId": job_id, "ownerId": owner_id},
+        )
     return {
         "id": job_id,
         "status": job.status,

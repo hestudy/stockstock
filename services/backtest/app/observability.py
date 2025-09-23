@@ -13,8 +13,15 @@ import sys
 import time
 from typing import Any, Dict, Optional
 
-OBS_ENABLED = (os.getenv("OBS_ENABLED", "true").lower() != "false")
 COMPONENT = os.getenv("WORKER_COMPONENT", "backtest-worker")
+
+
+def _obs_enabled() -> bool:
+    return os.getenv("OBS_ENABLED", "true").lower() != "false"
+
+
+def _metrics_enabled() -> bool:
+    return os.getenv("OBS_METRICS_ENABLED", "true").lower() != "false"
 
 
 def _ts() -> str:
@@ -33,6 +40,11 @@ def mask(value: Optional[str]) -> Optional[str]:
     return v[:3] + "***" if len(v) > 3 else "***"
 
 
+def _write(payload: Dict[str, Any]) -> None:
+    sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    sys.stdout.flush()
+
+
 def log(
     level: str,
     message: str,
@@ -45,7 +57,7 @@ def log(
     code: Optional[str] = None,
     extra: Optional[Dict[str, Any]] = None,
 ) -> None:
-    if not OBS_ENABLED:
+    if not _obs_enabled():
         return
     payload: Dict[str, Any] = {
         "ts": _ts(),
@@ -71,8 +83,7 @@ def log(
             payload["extra"] = json.loads(json.dumps(extra))
         except Exception:
             payload["extra"] = {"note": "unserializable_extra"}
-    sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
-    sys.stdout.flush()
+    _write(payload)
 
 
 class Timer:
@@ -119,3 +130,26 @@ def log_error(
         code=code,
         extra=extra,
     )
+
+
+def emit_metric(
+    name: str,
+    value: float,
+    *,
+    tags: Optional[Dict[str, Any]] = None,
+) -> None:
+    if not _metrics_enabled():
+        return
+    payload: Dict[str, Any] = {
+        "ts": _ts(),
+        "component": COMPONENT,
+        "kind": "metric",
+        "name": name,
+        "value": float(value),
+    }
+    if tags:
+        try:
+            payload["tags"] = json.loads(json.dumps(tags))
+        except Exception:
+            payload["tags"] = {"note": "unserializable_tags"}
+    _write(payload)
