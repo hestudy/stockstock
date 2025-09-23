@@ -1,0 +1,55 @@
+# <!-- Powered by BMAD™ Core -->
+schema: 1
+story: "2.2"
+story_title: "Queue Orchestration"
+gate: "CONCERNS" # PASS|CONCERNS|FAIL|WAIVED
+status_reason: "核心并发/退避逻辑已有单元+集成覆盖，但 Top-N UI 未验证、Queue/Compute SLO 缺乏性能基线，可靠性/可观测性仍留风险，需补齐端到端与负载验证后再晋级。"
+reviewer: "Quinn (Test Architect)"
+updated: "2025-09-23T15:30:00+08:00"
+
+waiver: { active: false }
+
+top_issues:
+  - id: "AC4"
+    title: "缺少状态页 Top-N 端到端验证"
+    severity: "high"
+    action: "新增 Playwright 用例覆盖 /optimizations/{id} 显示节流提示与 Top-N 排序，完成后回归 gate。"
+  - id: "AC5"
+    title: "Queue/Compute SLO 未落地"
+    severity: "critical"
+    action: "实现 orchestrator 负载/性能测试与 CI 钩子，验证队列等待 P95 ≤2min 并输出指标。"
+
+trace:
+  totals:
+    requirements: 5
+    full: 3
+    partial: 1
+    none: 1
+  planning_ref: "docs/qa/assessments/2.2-test-design-20250923.md"
+  uncovered:
+    - ac: "AC4"
+      reason: "缺少 /optimizations/{id} Playwright 场景，无法验证 Top-N/节流可视化"
+    - ac: "AC5"
+      reason: "CI 未串联 orchestrator Pytest/性能基线，Queue/Compute SLO 无验证"
+  notes: "See docs/qa/assessments/2.2-trace-20250923.md"
+
+nfr_validation:
+  _assessed: [reliability, performance, observability, security]
+  reliability:
+    status: CONCERNS
+    notes: "未覆盖 Redis 故障/锁竞争；需混沌测试验证队列恢复与 Top-N 一致性。"
+  performance:
+    status: FAIL
+    notes: "缺少 Queue/Compute SLO 压测，未验证队列等待 P95 ≤2min；需引入负载脚本并接入 CI。"
+  observability:
+    status: CONCERNS
+    notes: "指标/告警链路未成形，queue_wait_seconds 等遥测未在流水线校验。"
+  security:
+    status: PASS
+    notes: "多租户访问控制与密钥校验已有集成测试；仍建议补速率限制检测。"
+
+evidence:
+  story_file: docs/stories/2.2.queue-orchestration.md
+  traceability: docs/qa/assessments/2.2-trace-20250923.md
+  nfr_assessment: docs/qa/assessments/2.2-nfr-20250923.md
+  test_design: docs/qa/assessments/2.2-test-design-20250923.md
