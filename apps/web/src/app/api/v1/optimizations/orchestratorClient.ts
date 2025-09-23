@@ -101,15 +101,33 @@ async function sendToRemote(
 }
 
 async function buildRemoteError(res: Response) {
-  const err = new Error("Failed to enqueue optimization job");
-  (err as any).code = res.status === 401 || res.status === 403 ? "E.FORBIDDEN" : "E.DEP_UPSTREAM";
-  (err as any).status = res.status >= 400 && res.status < 600 ? res.status : 502;
+  let payload: unknown;
   try {
-    const payload = await res.json();
-    (err as any).details = payload;
+    payload = await res.json();
   } catch {
-    // ignore json parse error
+    payload = undefined;
   }
+
+  const detail = (payload as any)?.detail ?? payload;
+  const remoteCode = typeof detail?.code === "string" ? detail.code : undefined;
+  const remoteMessage = typeof detail?.message === "string" ? detail.message : undefined;
+
+  const err = new Error(remoteMessage ?? "Failed to enqueue optimization job");
+  const fallbackCode = res.status === 401 || res.status === 403 ? "E.FORBIDDEN" : "E.DEP_UPSTREAM";
+
+  (err as any).code = remoteCode ?? fallbackCode;
+  (err as any).status = res.status >= 400 && res.status < 600 ? res.status : 502;
+
+  const details = typeof detail?.details === "object" && detail?.details != null ? detail.details : detail;
+  if (details) {
+    (err as any).details = details;
+  }
+
+  const requestId = typeof detail?.requestId === "string" ? detail.requestId : undefined;
+  if (requestId) {
+    (err as any).requestId = requestId;
+  }
+
   return err;
 }
 

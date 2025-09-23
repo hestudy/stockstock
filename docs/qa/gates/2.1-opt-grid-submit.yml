@@ -2,28 +2,20 @@
 schema: 1
 story: "2.1"
 story_title: "Opt Grid Submit"
-gate: "FAIL" # PASS|CONCERNS|FAIL|WAIVED
-status_reason: "远程 orchestrator 路径将参数类错误统一映射为 E.DEP_UPSTREAM，导致 AC2/AC3 错误码契约失效；且缺失 UI 端到端提交流程，无法验证核心用户路径。"
+gate: "PASS" # PASS|CONCERNS|FAIL|WAIVED
+status_reason: "远程 orchestrator 现已透传业务错误码并保留上下文，Playwright UI E2E 覆盖成功/参数无效/401 分支，AC2/AC3/AC5 均已满足。"
 reviewer: "Quinn (Test Architect)"
-updated: "2025-09-23T10:30:00+08:00"
+updated: "2025-09-23T14:45:00+08:00"
 
 waiver: { active: false }
 
-top_issues:
-  - id: "QA-2.1-001"
-    severity: high
-    finding: "远程 orchestrator 返回 E.PARAM_INVALID 时被 API 包装为 E.DEP_UPSTREAM"
-    suggested_action: "在 orchestratorClient.buildRemoteError 中透传远程错误码，映射并返回 E.PARAM_INVALID/E.FORBIDDEN 等业务语义；补充远程路径的整合测试"
-  - id: "QA-2.1-002"
-    severity: high
-    finding: "缺少参数寻优提交的 UI 端到端用例"
-    suggested_action: "为 /optimizations 表单编写 E2E（成功 / 参数无效 / 鉴权失败），纳入 CI"
+top_issues: []
 
 nfr_validation:
   _assessed: [reliability]
   reliability:
-    status: FAIL
-    notes: "核心提交流程缺少端到端自动化验证，且错误码契约在远程 orchestrator 场景中失效，存在高风险回归。"
+    status: PASS
+    notes: "Vitest 覆盖远程 orchestrator 错误码透传（apps/web/src/app/api/v1/optimizations/__tests__/route.int.test.ts），Playwright E2E 验证成功/参数无效/401 分支（apps/web/e2e/optimizations.spec.ts），执行 `pnpm --filter web test` 与 `pnpm --filter web e2e` 均通过（2025-09-23）。"
 
 # Optional section: evidence summary
 evidence:

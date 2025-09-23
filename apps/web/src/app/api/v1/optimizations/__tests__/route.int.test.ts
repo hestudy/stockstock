@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { POST } from "../route";
 import { debugListJobs, debugResetJobs } from "../orchestratorClient";
 import { resetVersionOwnershipStore, seedVersionOwnership } from "../versionOwnership";
@@ -97,5 +97,83 @@ describe("POST /api/v1/optimizations", () => {
     expect(res.status).toBe(403);
     const payload = (await res.json()) as any;
     expect(payload.error.code).toBe("E.FORBIDDEN");
+  });
+
+  it("propagates remote orchestrator validation errors", async () => {
+    seedVersionOwnership("v-remote", "test-owner");
+    process.env.OPTIMIZATION_ORCHESTRATOR_URL = "http://remote";
+    process.env.OPTIMIZATION_ORCHESTRATOR_SECRET = "top-secret";
+
+    const remoteBody = {
+      detail: {
+        code: "E.PARAM_INVALID",
+        message: "param space too large",
+        details: { limit: 32, estimate: 40 },
+      },
+    };
+
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify(remoteBody), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+
+    const body = {
+      versionId: "v-remote",
+      paramSpace: { only: [1, 2] },
+    };
+
+    try {
+      const res = await POST(makeRequest(body));
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(res.status).toBe(400);
+      const payload = (await res.json()) as any;
+      expect(payload.error.code).toBe("E.PARAM_INVALID");
+      expect(payload.error.details.limit).toBe(32);
+      expect(payload.error.message).toBe("param space too large");
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("returns remote orchestrator success response", async () => {
+    seedVersionOwnership("v-remote-ok", "test-owner");
+    process.env.OPTIMIZATION_ORCHESTRATOR_URL = "http://remote";
+    process.env.OPTIMIZATION_ORCHESTRATOR_SECRET = "top-secret";
+
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (_input, init) => {
+        const requestInit = init ?? {};
+        const headers = (requestInit.headers ?? {}) as Record<string, string>;
+        expect(headers["x-owner-id"]).toBe("test-owner");
+        expect(requestInit.method).toBe("POST");
+        const body = JSON.parse(requestInit.body as string);
+        expect(body.versionId).toBe("v-remote-ok");
+        return new Response(JSON.stringify({ id: "remote-job", status: "queued" }), {
+          status: 202,
+          headers: { "content-type": "application/json" },
+        });
+      });
+
+    const body = {
+      versionId: "v-remote-ok",
+      paramSpace: { p1: [1], p2: [2] },
+    };
+
+    try {
+      const res = await POST(makeRequest(body));
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(res.status).toBe(202);
+      const payload = (await res.json()) as any;
+      expect(payload.id).toBe("remote-job");
+      expect(payload.status).toBe("queued");
+      expect(debugListJobs()).toHaveLength(0);
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });
