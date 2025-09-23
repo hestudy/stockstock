@@ -1,0 +1,31 @@
+# <!-- Powered by BMAD™ Core -->
+schema: 1
+story: "2.1"
+story_title: "Opt Grid Submit"
+gate: "FAIL" # PASS|CONCERNS|FAIL|WAIVED
+status_reason: "远程 orchestrator 路径将参数类错误统一映射为 E.DEP_UPSTREAM，导致 AC2/AC3 错误码契约失效；且缺失 UI 端到端提交流程，无法验证核心用户路径。"
+reviewer: "Quinn (Test Architect)"
+updated: "2025-09-23T10:30:00+08:00"
+
+waiver: { active: false }
+
+top_issues:
+  - id: "QA-2.1-001"
+    severity: high
+    finding: "远程 orchestrator 返回 E.PARAM_INVALID 时被 API 包装为 E.DEP_UPSTREAM"
+    suggested_action: "在 orchestratorClient.buildRemoteError 中透传远程错误码，映射并返回 E.PARAM_INVALID/E.FORBIDDEN 等业务语义；补充远程路径的整合测试"
+  - id: "QA-2.1-002"
+    severity: high
+    finding: "缺少参数寻优提交的 UI 端到端用例"
+    suggested_action: "为 /optimizations 表单编写 E2E（成功 / 参数无效 / 鉴权失败），纳入 CI"
+
+nfr_validation:
+  _assessed: [reliability]
+  reliability:
+    status: FAIL
+    notes: "核心提交流程缺少端到端自动化验证，且错误码契约在远程 orchestrator 场景中失效，存在高风险回归。"
+
+# Optional section: evidence summary
+evidence:
+  story_file: docs/stories/2.1.opt-grid-submit.md
+  traceability: docs/qa/assessments/2.1-trace-20250922.md
