@@ -2,30 +2,32 @@
 schema: 1
 story: "2.2"
 story_title: "Queue Orchestration"
-gate: "CONCERNS" # PASS|CONCERNS|FAIL|WAIVED
-status_reason: "Next.js 编排器回退实现忽略 early-stop 最小化排序，测试/本地默认配置下 Top-N 顺序被反转，需补齐与 Python orchestrator 一致的排序逻辑及覆盖。"
+gate: "FAIL" # PASS|CONCERNS|FAIL|WAIVED
+status_reason: "Python orchestrator 在并发饱和时将所有排队任务提前解除 throttle，`summary.throttled`/`diagnostics.queueDepth` 被错误清零，AC2/AC4 要求的排队可观测性失效。"
 reviewer: "Quinn (Test Architect)"
-updated: "2025-09-27T05:30:00Z"
+updated: "2025-09-24T08:31:18Z"
 
 waiver: { active: false }
 
 top_issues:
-  - id: "QA-2.2-TOPN-FALLBACK"
-    title: "本地 orchestrator 回退忽略 min 模式导致 Top-N 顺序错误"
+  - id: "QA-2.2-QUEUE-DEPTH"
+    title: "并发饱和时状态接口的 throttled/queueDepth 丢失排队信息"
     severity: high
     evidence:
-      - "apps/web/src/app/api/v1/optimizations/orchestratorClient.ts:314"
+      - "services/backtest/app/orchestrator.py:503"
       - "docs/stories/2.2.queue-orchestration.md#QA Results"
-    recommendation: "在回退实现中按 earlyStopPolicy.mode 排序并补充最小化场景测试"
+    recommendation: "修正 `_activate_slots` 的容量计算，确保仅释放所需任务并维持 throttled 计数，新增单测覆盖排队指标在并发饱和场景下的正确性"
 
 trace:
   totals:
     requirements: 5
-    full: 5
-    partial: 0
-    none: 0
+    full: 3
+    partial: 1
+    none: 1
   planning_ref: "docs/qa/assessments/2.2-test-design-20250923.md"
-  uncovered: []
+  uncovered:
+    - "AC2 并发闸门与排队限制：队列深度指标失真"
+    - "AC4 进度聚合与 Top-N：状态接口无法正确反馈排队信息"
   notes: "See docs/qa/assessments/2.2-trace-20250923.md"
 
 nfr_validation:
@@ -33,31 +35,35 @@ nfr_validation:
     status: PASS
     notes: "API 继续校验租户与内部密钥，集成测试覆盖未授权/越权路径。"
   performance:
-    status: PASS
-    notes: "Queue SLO pytest 已恢复并通过（仍有 datetime.utcnow 弃用警告需后续治理）。"
-  reliability:
     status: CONCERNS
-    notes: "Next.js 回退路径未根据 early-stop 最小化排序 Top-N，dev/test 默认配置可能返回错误排名。"
+    notes: "Queue SLO pytest 通过，但需在修复 throttled 统计后回归指标，现阶段数据可能被稀释。"
+  reliability:
+    status: FAIL
+    notes: "核心 orchestrator 在并发饱和时丢失队列深度观测，依赖该诊断信息的告警与 UI 全部失效。"
   maintainability:
     status: PASS
     notes: "Playwright 拦截表达式修复，端到端测试命中 stub 并验证 UI。"
 
 evidence:
-  tests_reviewed: 11
-  risks_identified: 2
+  tests_reviewed: 12
+  risks_identified: 1
   trace:
-    ac_covered: [1, 2, 3, 4, 5]
-    ac_gaps: []
+    ac_covered: [1, 3, 5]
+    ac_gaps: [2, 4]
   story_file: docs/stories/2.2.queue-orchestration.md
   traceability: docs/qa/assessments/2.2-trace-20250923.md
   nfr_assessment: docs/qa/assessments/2.2-nfr-20250923.md
   test_design: docs/qa/assessments/2.2-test-design-20250923.md
 
-quality_score: 82
-expires: "2025-10-05T05:30:00Z"
+quality_score: 60
+expires: "2025-10-08T08:31:18Z"
 
 recommendations:
-  immediate: []
+  immediate:
+    - action: "修复 `_activate_slots` 逻辑并补充单测验证 throttled/queueDepth 在并发饱和场景仍保持正确"
+      refs:
+        - "services/backtest/app/orchestrator.py"
+        - "services/backtest/tests/test_orchestrator.py"
   future:
     - action: "清理 orchestrator/worker datetime.utcnow 弃用告警并统一时间处理"
       refs:
