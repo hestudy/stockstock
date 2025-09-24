@@ -313,6 +313,7 @@ def create_optimization_job(
         "id": job_id,
         "status": job.status,
         "throttled": job.summary.throttled > 0,
+        "totalTasks": total_tasks,
     }
 
 
