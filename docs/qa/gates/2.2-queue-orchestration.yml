@@ -3,26 +3,21 @@ schema: 1
 story: "2.2"
 story_title: "Queue Orchestration"
 gate: "FAIL" # PASS|CONCERNS|FAIL|WAIVED
-status_reason: "Next.js fallback orchestrator 在存在失败子任务时仍返回 job.status=succeeded，违背 AC4 对进度聚合的可靠性要求；需先修复再交付。"
+status_reason: "队列 orchestrator 未将子任务写入 optimization_tasks/Redis，仅保存在进程内存，重启即丢失排队/重试状态，AC1 未闭环。"
 reviewer: "Quinn (Test Architect)"
-updated: "2025-09-24T09:12:11Z"
+updated: "2025-09-24T10:19:51Z"
 
 waiver: { active: false }
 
 top_issues:
-  - id: "QA-2.2-FALLBACK-STATUS"
-    title: "Fallback orchestrator 将失败作业标记为 succeeded"
+  - id: "QA-2.2-TASK-PERSISTENCE"
+    title: "优化子任务仅存于内存，缺少 optimization_tasks 持久化"
     severity: high
     evidence:
-      - "apps/web/src/app/api/v1/optimizations/orchestratorClient.ts:334"
-      - "docs/stories/2.2.queue-orchestration.md#QA Results"
-    recommendation: "比照 Python orchestrator，在 `refreshSummary` 中检测失败/取消任务并将 `job.status` 置为 failed；补充对应单测覆盖。"
-  - id: "QA-2.2-TOPN-COPY"
-    title: "Top-N 文案未区分最小化模式"
-    severity: medium
-    evidence:
-      - "apps/web/src/app/(dashboard)/optimizations/[id]/page.tsx:133"
-    recommendation: "根据 earlyStopPolicy.mode 或返回的 Top-N 顺序动态调整说明文案，避免与实际排序矛盾。"
+      - "services/backtest/app/orchestrator.py:278"
+      - "apps/web/src/app/api/v1/optimizations/orchestratorClient.ts:118"
+      - "docs/stories/2.2.queue-orchestration.md:15"
+    recommendation: "在 create_optimization_job 阶段写入 optimization_tasks/Redis 队列，提供重启恢复能力，并补充回放测试。"
 
 trace:
   totals:
@@ -32,46 +27,46 @@ trace:
     none: 1
   planning_ref: "docs/qa/assessments/2.2-test-design-20250923.md"
   uncovered:
-    - "AC4 进度聚合与 Top-N：fallback job.status 未对失败结果做降级，用户无法看到整体失败态。"
+    - "AC1 父作业拆分与子任务入队：未写入 optimization_tasks/Redis，进程重启即丢失任务。"
   notes: "See docs/qa/assessments/2.2-trace-20250923.md"
 
 nfr_validation:
   security:
     status: PASS
-    notes: "API 继续校验租户与内部密钥，集成测试覆盖未授权/越权路径。"
+    notes: "租户/密钥校验完整，新增路径未放宽权限。"
   performance:
     status: PASS
-    notes: "Queue SLO pytest 通过并验证 P95≤120s，当前实现满足队列吞吐指标。"
+    notes: "Queue SLO pytest 通过，现有并发控制满足指标。"
   reliability:
     status: FAIL
-    notes: "Fallback orchestrator 误判失败作业为成功，核心进度聚合失真；修复前不可发布。"
+    notes: "缺少任务持久化，服务重启无法恢复队列，AC1/AC3 风险仍在。"
   maintainability:
     status: CONCERNS
-    notes: "UI 文案需与模式保持一致，另有 utcnow 弃用警告待后续集中治理。"
+    notes: "缺少持久化层测试与运维文档，需补齐保障。"
 
 evidence:
-  tests_reviewed: 14
+  tests_reviewed: 23
   risks_identified: 1
   trace:
-    ac_covered: [1, 2, 3, 5]
-    ac_gaps: [4]
+    ac_covered: [2, 3, 4, 5]
+    ac_gaps: [1]
   story_file: docs/stories/2.2.queue-orchestration.md
   traceability: docs/qa/assessments/2.2-trace-20250923.md
   nfr_assessment: docs/qa/assessments/2.2-nfr-20250923.md
   test_design: docs/qa/assessments/2.2-test-design-20250923.md
 
 quality_score: 70
-expires: "2025-10-08T09:12:17Z"
+expires: "2025-10-08T10:19:51Z"
 
 recommendations:
   immediate:
-    - action: "修复 fallback orchestrator 的作业状态判定并补充测试覆盖"
+    - action: "实现 optimization_tasks/Redis 持久化写入与幂等恢复流程，补充失败回滚与重启回放测试"
       refs:
-        - "apps/web/src/app/api/v1/optimizations/orchestratorClient.ts"
-        - "apps/web/src/app/api/v1/optimizations/__tests__/status.route.int.test.ts"
-  future:
-    - action: "统一 UI 文案与排序模式，并规划 utcnow 弃用警告的技术债治理"
-      refs:
-        - "apps/web/src/app/(dashboard)/optimizations/[id]/page.tsx"
         - "services/backtest/app/orchestrator.py"
-        - "services/backtest/app/worker.py"
+        - "apps/web/src/app/api/v1/optimizations/orchestratorClient.ts"
+        - "docs/schema.sql"
+  future:
+    - action: "完善 Runbook 与监控，覆盖 Queue SLO 指标和持久化健康检查"
+      refs:
+        - "docs/qa/assessments/2.2-risk-20250923.md"
+        - "services/backtest/app/observability.py"
