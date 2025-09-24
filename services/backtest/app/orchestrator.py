@@ -10,6 +10,31 @@ from datetime import datetime, timedelta
 from threading import RLock
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
+try:
+    from sqlalchemy import (
+        Column,
+        DateTime,
+        Integer,
+        Float,
+        Boolean,
+        JSON,
+        MetaData,
+        String,
+        Table,
+        create_engine,
+        insert,
+        delete,
+        select,
+        update,
+    )
+    from sqlalchemy.dialects.postgresql import JSONB
+    from sqlalchemy.engine import Engine
+    from sqlalchemy.exc import SQLAlchemyError
+except Exception:  # pragma: no cover - optional dependency
+    create_engine = None
+    Engine = None
+    Boolean = Column = DateTime = Integer = JSON = MetaData = String = Table = insert = select = update = delete = Float = None
+
 from .observability import emit_metric
 
 JobStatus = str
@@ -91,11 +116,12 @@ class OptimizationJob:
     owner_id: str
     version_id: str
     param_space: Dict[str, Any]
-    normalized_space: Dict[str, Sequence[Any]]
-    concurrency_limit: int
-    early_stop_policy: Optional[EarlyStopPolicy]
+    normalized_space: Dict[str, Sequence[Any]] = field(default_factory=dict)
+    concurrency_limit: int = 0
+    early_stop_policy: Optional[EarlyStopPolicy] = None
     status: JobStatus = DEFAULT_STATUS
     total_tasks: int = 0
+    estimate: int = 0
     summary: OptimizationSummary = field(default_factory=lambda: OptimizationSummary(0, 0, 0, 0))
     created_at: str = field(default_factory=iso_now)
     updated_at: str = field(default_factory=iso_now)
@@ -106,6 +132,72 @@ _TASKS: Dict[str, Dict[str, OptimizationTask]] = {}
 _TASK_ORDER: Dict[str, List[str]] = {}
 _JOB_ORDER: List[str] = []
 _STORE_LOCK = RLock()
+
+if JSON is not None:
+    try:  # pragma: no cover - variant not available on all platforms
+        from sqlalchemy import Text
+
+        JSON_TYPE = JSON().with_variant(JSONB(astext_type=Text()), "postgresql") if JSONB else JSON()
+    except Exception:  # pragma: no cover - fallback to generic JSON
+        JSON_TYPE = JSON()
+else:  # SQLAlchemy not installed
+    JSON_TYPE = None
+
+if JSON_TYPE is not None:
+    _METADATA = MetaData()
+    _JOBS_TABLE = Table(
+        "optimization_jobs",
+        _METADATA,
+        Column("id", String, primary_key=True),
+        Column("owner_id", String, nullable=False),
+        Column("strategy_version_id", String, nullable=False),
+        Column("param_space", JSON_TYPE, nullable=False),
+        Column("concurrency_limit", Integer, nullable=False),
+        Column("early_stop_policy", JSON_TYPE),
+        Column("status", String, nullable=False),
+        Column("total_tasks", Integer),
+        Column("estimate", Integer),
+        Column("summary", JSON_TYPE),
+        Column("result_summary_id", String),
+        Column("created_at", DateTime(timezone=True)),
+        Column("updated_at", DateTime(timezone=True)),
+        extend_existing=True,
+    )
+    _TASKS_TABLE = Table(
+        "optimization_tasks",
+        _METADATA,
+        Column("id", String, primary_key=True),
+        Column("job_id", String, nullable=False),
+        Column("owner_id", String, nullable=False),
+        Column("strategy_version_id", String, nullable=False),
+        Column("param_set", JSON_TYPE, nullable=False),
+        Column("status", String, nullable=False),
+        Column("progress", Float),
+        Column("retries", Integer, nullable=False, default=0),
+        Column("next_run_at", DateTime(timezone=True)),
+        Column("throttled", Boolean, nullable=False, default=False),
+        Column("error", JSON_TYPE),
+        Column("last_error", JSON_TYPE),
+        Column("result_summary_id", String),
+        Column("score", Float),
+        Column("created_at", DateTime(timezone=True)),
+        Column("updated_at", DateTime(timezone=True)),
+        extend_existing=True,
+    )
+else:  # SQLAlchemy unavailable
+    _METADATA = None
+    _JOBS_TABLE = None
+    _TASKS_TABLE = None
+
+
+def _clear_memory() -> None:
+    """Clear in-memory job/task caches."""
+
+    with _STORE_LOCK:
+        _JOBS.clear()
+        _TASKS.clear()
+        _TASK_ORDER.clear()
+        _JOB_ORDER.clear()
 
 
 # ==== Environment helpers ====
@@ -295,6 +387,7 @@ def create_optimization_job(
         early_stop_policy=policy_obj,
         status=DEFAULT_STATUS,
         total_tasks=total_tasks,
+        estimate=estimate or computed_estimate,
         summary=_initial_summary(total_tasks, tasks),
     )
     with _STORE_LOCK:
@@ -303,6 +396,8 @@ def create_optimization_job(
         _TASK_ORDER[job_id] = [task.id for task in tasks]
         if job_id not in _JOB_ORDER:
             _JOB_ORDER.append(job_id)
+    if _PERSISTENCE.enabled:
+        _PERSISTENCE.persist_job(job, tasks)
     if job.summary.throttled > 0:
         emit_metric(
             "throttled_requests",
@@ -337,6 +432,8 @@ def dequeue_next(owner_id: str, job_id: Optional[str] = None) -> Optional[Dict[s
                     task.updated_at = iso_now()
                     task.last_error = None
                     job.status = "running"
+                    if _PERSISTENCE.enabled:
+                        _PERSISTENCE.update_task(task)
                     _refresh_summary(job)
                     return _task_to_dict(task)
     return None
@@ -353,6 +450,8 @@ def mark_task_succeeded(job_id: str, task_id: str, score: Optional[float] = None
         task.next_run_at = datetime.utcnow()
         task.error = None
         task.last_error = None
+        if _PERSISTENCE.enabled:
+            _PERSISTENCE.update_task(task)
         _activate_slots(job)
         _refresh_summary(job)
         return _task_to_dict(task)
@@ -385,6 +484,8 @@ def mark_task_failed(
             task.status = "failed"
             task.throttled = False
             task.next_run_at = now
+        if _PERSISTENCE.enabled:
+            _PERSISTENCE.update_task(task)
         _activate_slots(job)
         _refresh_summary(job)
         return _task_to_dict(task)
@@ -464,8 +565,10 @@ def _initial_summary(total: int, tasks: List[OptimizationTask]) -> OptimizationS
     )
 
 
-def _refresh_summary(job: OptimizationJob) -> None:
+def _refresh_summary(job: OptimizationJob, *, persist: bool = True) -> None:
     tasks = list(_TASKS[job.id].values())
+    prev_status = job.status
+    prev_summary = _summary_to_dict(job.summary)
     finished = sum(1 for task in tasks if task.status in FINISHED_STATUSES)
     running = sum(1 for task in tasks if task.status == "running")
     throttled = sum(1 for task in tasks if task.throttled)
@@ -489,15 +592,25 @@ def _refresh_summary(job: OptimizationJob) -> None:
         throttled=throttled,
         top_n=top_n,
     )
-    job.updated_at = iso_now()
+    new_status = job.status
     if finished >= job.total_tasks:
-        job.status = "succeeded"
+        new_status = "succeeded"
         if any(task.status == "failed" for task in tasks):
-            job.status = "failed"
+            new_status = "failed"
     elif running > 0:
-        job.status = "running"
+        new_status = "running"
     else:
-        job.status = DEFAULT_STATUS
+        new_status = DEFAULT_STATUS
+    job.status = new_status
+
+    changed = (
+        prev_status != job.status
+        or prev_summary != _summary_to_dict(job.summary)
+    )
+    if changed:
+        job.updated_at = iso_now()
+    if persist and changed:
+        _PERSISTENCE.update_job(job)
 
 
 def _activate_slots(job: OptimizationJob) -> None:
@@ -522,6 +635,8 @@ def _activate_slots(job: OptimizationJob) -> None:
             task.throttled = False
             task.next_run_at = min(task.next_run_at, now)
             task.updated_at = iso_now()
+            if _PERSISTENCE.enabled:
+                _PERSISTENCE.update_task(task)
             capacity -= 1
 
 
@@ -562,14 +677,318 @@ def _task_to_dict(task: OptimizationTask) -> Dict[str, Any]:
     }
 
 
+def _policy_to_dict(policy: Optional[EarlyStopPolicy]) -> Optional[Dict[str, Any]]:
+    if not policy:
+        return None
+    return {
+        "metric": policy.metric,
+        "threshold": policy.threshold,
+        "mode": policy.mode,
+    }
+
+
+def _summary_to_dict(summary: OptimizationSummary) -> Dict[str, Any]:
+    return {
+        "total": summary.total,
+        "finished": summary.finished,
+        "running": summary.running,
+        "throttled": summary.throttled,
+        "topN": summary.top_n,
+    }
+
+
+def _to_datetime(value: Optional[Any]) -> Optional[datetime]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            try:
+                return datetime.strptime(value, "%Y-%m-%dT%H:%M:%S")
+            except ValueError:
+                return None
+    return None
+
+
+def _to_iso(value: Optional[datetime]) -> str:
+    if value is None:
+        return iso_now()
+    return value.replace(tzinfo=None).isoformat()
+
+
+def _dict_to_policy(data: Optional[Dict[str, Any]]) -> Optional[EarlyStopPolicy]:
+    if not data:
+        return None
+    try:
+        metric = str(data.get("metric", ""))
+        threshold_raw = data.get("threshold", 0.0)
+        threshold = float(threshold_raw) if threshold_raw is not None else 0.0
+        mode = str(data.get("mode", "min"))
+        return EarlyStopPolicy(metric=metric, threshold=threshold, mode=mode)
+    except Exception:  # pragma: no cover - defensive guard against malformed data
+        return None
+
+
+class TaskPersistence:
+    """Optional persistence layer backed by SQLAlchemy.
+
+    When a valid DSN is provided via OPTIMIZATION_DB_DSN (or explicitly through
+    `configure_persistence`), job/task state is mirrored to the relational
+    tables so the orchestrator can recover after a restart.
+    """
+
+    def __init__(self, dsn: Optional[str], *, create_tables: bool = False) -> None:
+        clean_dsn = (dsn or os.getenv("OPTIMIZATION_DB_DSN") or "").strip()
+        self.dsn = clean_dsn or None
+        self.enabled = bool(self.dsn and create_engine is not None and _JOBS_TABLE is not None)
+        self._engine: Optional[Engine] = None
+        if not self.enabled:
+            return
+        self._engine = create_engine(self.dsn, future=True)
+        if create_tables or self._is_sqlite():
+            assert _METADATA is not None
+            _METADATA.create_all(self._engine)
+
+    def _is_sqlite(self) -> bool:
+        return bool(self.dsn and self.dsn.lower().startswith("sqlite"))
+
+    def persist_job(self, job: OptimizationJob, tasks: Sequence[OptimizationTask]) -> None:
+        if not self.enabled or not self._engine:
+            return
+        summary_payload = _summary_to_dict(job.summary)
+        policy_payload = _policy_to_dict(job.early_stop_policy)
+        created_at = _to_datetime(job.created_at)
+        updated_at = _to_datetime(job.updated_at)
+        rows = [
+            {
+                "id": task.id,
+                "job_id": task.job_id,
+                "owner_id": task.owner_id,
+                "strategy_version_id": task.version_id,
+                "param_set": task.params,
+                "status": task.status,
+                "progress": task.progress,
+                "retries": task.retries,
+                "next_run_at": task.next_run_at,
+                "throttled": task.throttled,
+                "error": task.error,
+                "last_error": task.last_error,
+                "result_summary_id": task.result_summary_id,
+                "score": task.score,
+                "created_at": _to_datetime(task.created_at),
+                "updated_at": _to_datetime(task.updated_at),
+            }
+            for task in tasks
+        ]
+        try:
+            with self._engine.begin() as conn:
+                conn.execute(
+                    insert(_JOBS_TABLE),
+                    [
+                        {
+                            "id": job.id,
+                            "owner_id": job.owner_id,
+                            "strategy_version_id": job.version_id,
+                            "param_space": job.param_space,
+                            "concurrency_limit": job.concurrency_limit,
+                            "early_stop_policy": policy_payload,
+                            "status": job.status,
+                            "total_tasks": job.total_tasks,
+                            "estimate": job.estimate or job.total_tasks,
+                            "summary": summary_payload,
+                            "result_summary_id": None,
+                            "created_at": created_at,
+                            "updated_at": updated_at,
+                        }
+                    ],
+                )
+                if rows:
+                    conn.execute(insert(_TASKS_TABLE), rows)
+        except SQLAlchemyError:  # pragma: no cover - defensive fallback
+            # In persistence failures we prefer to keep in-memory state working.
+            pass
+
+    def update_task(self, task: OptimizationTask) -> None:
+        if not self.enabled or not self._engine:
+            return
+        try:
+            with self._engine.begin() as conn:
+                conn.execute(
+                    update(_TASKS_TABLE)
+                    .where(_TASKS_TABLE.c.id == task.id)
+                    .values(
+                        status=task.status,
+                        progress=task.progress,
+                        retries=task.retries,
+                        next_run_at=task.next_run_at,
+                        throttled=task.throttled,
+                        error=task.error,
+                        last_error=task.last_error,
+                        result_summary_id=task.result_summary_id,
+                        score=task.score,
+                        updated_at=_to_datetime(task.updated_at),
+                    )
+                )
+        except SQLAlchemyError:  # pragma: no cover - defensive fallback
+            pass
+
+    def update_job(self, job: OptimizationJob) -> None:
+        if not self.enabled or not self._engine:
+            return
+        try:
+            with self._engine.begin() as conn:
+                conn.execute(
+                    update(_JOBS_TABLE)
+                    .where(_JOBS_TABLE.c.id == job.id)
+                    .values(
+                        status=job.status,
+                        total_tasks=job.total_tasks,
+                        estimate=job.estimate,
+                        summary=_summary_to_dict(job.summary),
+                        updated_at=_to_datetime(job.updated_at),
+                    )
+                )
+        except SQLAlchemyError:  # pragma: no cover - defensive fallback
+            pass
+
+    def hydrate(self) -> None:
+        if not self.enabled or not self._engine:
+            return
+        try:
+            with self._engine.begin() as conn:
+                job_rows = conn.execute(
+                    select(_JOBS_TABLE).order_by(_JOBS_TABLE.c.created_at.nullslast())
+                ).all()
+                job_ids = [row._mapping["id"] for row in job_rows]
+                task_rows: List[Any] = []
+                if job_ids:
+                    task_rows = conn.execute(
+                        select(_TASKS_TABLE)
+                        .where(_TASKS_TABLE.c.job_id.in_(job_ids))
+                        .order_by(_TASKS_TABLE.c.created_at.nullslast(), _TASKS_TABLE.c.id)
+                    ).all()
+        except SQLAlchemyError:  # pragma: no cover - defensive fallback
+            return
+
+        job_map: Dict[str, List[Any]] = {job_id: [] for job_id in job_ids}
+        for row in task_rows:
+            job_map[row._mapping["job_id"]].append(row)
+
+        _clear_memory()
+        with _STORE_LOCK:
+            for job_row in job_rows:
+                job = self._row_to_job(job_row)
+                tasks = {}
+                order: List[str] = []
+                for task_row in job_map.get(job.id, []):
+                    task = self._row_to_task(task_row)
+                    tasks[task.id] = task
+                    order.append(task.id)
+                _JOBS[job.id] = job
+                _TASKS[job.id] = tasks
+                _TASK_ORDER[job.id] = order
+                if job.id not in _JOB_ORDER:
+                    _JOB_ORDER.append(job.id)
+                _refresh_summary(job, persist=False)
+
+    def reset(self) -> None:
+        if not self.enabled or not self._engine:
+            return
+        try:
+            with self._engine.begin() as conn:
+                conn.execute(_TASKS_TABLE.delete())
+                conn.execute(_JOBS_TABLE.delete())
+        except SQLAlchemyError:  # pragma: no cover - defensive fallback
+            pass
+
+    @staticmethod
+    def _row_to_job(row: Any) -> OptimizationJob:
+        mapping = row._mapping
+        job = OptimizationJob(
+            id=mapping["id"],
+            owner_id=mapping["owner_id"],
+            version_id=mapping["strategy_version_id"],
+            param_space=mapping.get("param_space") or {},
+            normalized_space={},
+            concurrency_limit=mapping.get("concurrency_limit") or 0,
+            early_stop_policy=_dict_to_policy(mapping.get("early_stop_policy")),
+            status=mapping.get("status") or DEFAULT_STATUS,
+            total_tasks=mapping.get("total_tasks") or 0,
+            estimate=mapping.get("estimate") or mapping.get("total_tasks") or 0,
+        )
+        job.created_at = _to_iso(mapping.get("created_at"))
+        job.updated_at = _to_iso(mapping.get("updated_at"))
+        summary = mapping.get("summary") or {}
+        if isinstance(summary, dict):
+            job.summary = OptimizationSummary(
+                total=int(summary.get("total", job.total_tasks or 0)),
+                finished=int(summary.get("finished", 0)),
+                running=int(summary.get("running", 0)),
+                throttled=int(summary.get("throttled", 0)),
+                top_n=list(summary.get("topN", [])),
+            )
+        else:
+            job.summary = OptimizationSummary(job.total_tasks, 0, 0, 0)
+        return job
+
+    @staticmethod
+    def _row_to_task(row: Any) -> OptimizationTask:
+        mapping = row._mapping
+        return OptimizationTask(
+            id=mapping["id"],
+            job_id=mapping["job_id"],
+            owner_id=mapping["owner_id"],
+            version_id=mapping["strategy_version_id"],
+            params=mapping.get("param_set") or {},
+            status=mapping.get("status") or DEFAULT_STATUS,
+            progress=mapping.get("progress"),
+            retries=mapping.get("retries") or 0,
+            error=mapping.get("error"),
+            result_summary_id=mapping.get("result_summary_id"),
+            score=mapping.get("score"),
+            throttled=bool(mapping.get("throttled")),
+            next_run_at=mapping.get("next_run_at") or datetime.utcnow(),
+            last_error=mapping.get("last_error"),
+            created_at=_to_iso(mapping.get("created_at")),
+            updated_at=_to_iso(mapping.get("updated_at")),
+        )
+
+
+_PERSISTENCE: TaskPersistence = TaskPersistence(None)
+if _PERSISTENCE.enabled:
+    _PERSISTENCE.hydrate()
+
+
+def configure_persistence(dsn: Optional[str], *, create_tables: bool = False) -> None:
+    """Configure persistence backend (used by tests to switch stores)."""
+
+    global _PERSISTENCE
+    _PERSISTENCE = TaskPersistence(dsn, create_tables=create_tables)
+    if _PERSISTENCE.enabled:
+        _PERSISTENCE.hydrate()
+    else:
+        _clear_memory()
+
+
+def get_persistence() -> TaskPersistence:
+    return _PERSISTENCE
+
+
 # ==== Debug helpers ====
 
 def debug_reset():
-    with _STORE_LOCK:
-        _JOBS.clear()
-        _TASKS.clear()
-        _TASK_ORDER.clear()
-        _JOB_ORDER.clear()
+    _clear_memory()
+
+
+def debug_reset_persistent():
+    """Test helper to clear both memory cache and persistent storage."""
+
+    _clear_memory()
+    if _PERSISTENCE.enabled:
+        _PERSISTENCE.reset()
 
 
 def debug_jobs() -> Dict[str, OptimizationJob]:

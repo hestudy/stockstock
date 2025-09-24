@@ -7,9 +7,11 @@ import pytest
 from services.backtest.app.orchestrator import (
     JobAccessError,
     ParamInvalidError,
+    configure_persistence,
     create_optimization_job,
     debug_jobs,
     debug_reset,
+    debug_reset_persistent,
     debug_tasks,
     dequeue_next,
     get_job_status,
@@ -28,9 +30,11 @@ def cleanup_env():
     os.environ["OPT_CONCURRENCY_LIMIT_MAX"] = "8"
     os.environ["OPT_TOP_N_LIMIT"] = "3"
     os.environ["OPT_MAX_RETRIES"] = "3"
+    configure_persistence(None)
     debug_reset()
     yield
     debug_reset()
+    configure_persistence(None)
     if prev_limit is None:
         os.environ.pop("OPT_PARAM_SPACE_MAX", None)
     else:
@@ -273,3 +277,34 @@ def test_thread_safe_dequeue_and_update(monkeypatch):
 
     status = get_job_status(job_id, "owner-1")
     assert status["summary"]["finished"] >= 2
+
+
+def test_sqlite_persistence_round_trip(tmp_path):
+    pytest.importorskip("sqlalchemy")
+    dsn = f"sqlite:///{tmp_path/'opt_persist.sqlite'}"
+    configure_persistence(dsn, create_tables=True)
+    try:
+        result = create_optimization_job(
+            owner_id="owner-1",
+            version_id="v-1",
+            param_space={"x": [1, 2]},
+            concurrency_limit=1,
+        )
+        job_id = result["id"]
+        first = dequeue_next("owner-1", job_id)
+        assert first is not None
+        mark_task_succeeded(job_id, first["id"], score=0.8)
+
+        # Simulate process restart: reconfigure persistence, which rehydrates memory
+        configure_persistence(dsn, create_tables=False)
+        status = get_job_status(job_id, "owner-1")
+        assert status["summary"]["total"] == 2
+        assert status["summary"]["finished"] == 1
+
+        # Ensure queued work can still be fetched after hydration
+        next_task = dequeue_next("owner-1", job_id)
+        assert next_task is not None
+        assert next_task["id"] != first["id"]
+    finally:
+        debug_reset_persistent()
+        configure_persistence(None)

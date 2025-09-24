@@ -25,11 +25,13 @@ def payload(**overrides):
 def reset_state():
     prev_secret = os.environ.get("OPTIMIZATION_ORCHESTRATOR_SECRET")
     prev_limit = os.environ.get("OPT_PARAM_SPACE_MAX")
+    orchestrator.configure_persistence(None)
     orchestrator.debug_reset()
     if prev_limit is None:
         os.environ["OPT_PARAM_SPACE_MAX"] = "16"
     yield
     orchestrator.debug_reset()
+    orchestrator.configure_persistence(None)
     if prev_secret is None:
         os.environ.pop("OPTIMIZATION_ORCHESTRATOR_SECRET", None)
     if prev_limit is None:
