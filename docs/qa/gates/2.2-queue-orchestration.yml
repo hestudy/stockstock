@@ -3,29 +3,36 @@ schema: 1
 story: "2.2"
 story_title: "Queue Orchestration"
 gate: "FAIL" # PASS|CONCERNS|FAIL|WAIVED
-status_reason: "Queue/Compute SLO pytest 因 orchestrator.create_optimization_job 缺少 totalTasks 字段而抛错，性能基线无法验证；需先修复再回归 Gate。"
+status_reason: "Top-N 聚合未参考 early-stop 模式导致最小化指标下排序颠倒，AC4 失效；Playwright 拦截写法错误，E2E 覆盖未实际验证 UI。"
 reviewer: "Quinn (Test Architect)"
-updated: "2025-09-25T02:00:00Z"
+updated: "2025-09-26T02:00:00Z"
 
 waiver: { active: false }
 
 top_issues:
-  - id: "BUG-totalTasks"
-    title: "Queue SLO pytest 因 orchestrator 缺少 totalTasks 字段而失败"
+  - id: "BUG-topn-mode"
+    title: "Top-N 未根据 EarlyStopPolicy.mode 选择排序方向"
     severity: "critical"
-    action: "补齐 create_optimization_job 返回的 totalTasks 或调整 test_queue_slo 读取 job 摘要，恢复 Queue/Compute SLO 校验。"
+    action: "在 orchestrator 汇总时根据 mode=\"min\" 采用升序排序，确保最优结果排前。"
+    suggested_owner: "dev"
+  - id: "TEST-playwright-route"
+    title: "Optimizations detail E2E 拦截正则写法导致未命中 stub"
+    severity: "high"
+    action: "改用 new RegExp(`/api/v1/optimizations/${JOB_ID}/status`) 或字符串匹配，确保 E2E 请求使用模拟响应。"
     suggested_owner: "dev"
 
 trace:
   totals:
     requirements: 5
-    full: 4
+    full: 3
     partial: 0
-    none: 1
+    none: 2
   planning_ref: "docs/qa/assessments/2.2-test-design-20250923.md"
   uncovered:
+    - ac: "AC4"
+      reason: "Top-N 聚合在 mode=\"min\" 场景下返回错误排序"
     - ac: "AC5"
-      reason: "Queue SLO pytest 未能运行，P95≤120s 指标未验证"
+      reason: "优化详情 Playwright 覆盖未命中 stub，端到端验证缺失"
   notes: "See docs/qa/assessments/2.2-trace-20250923.md"
 
 nfr_validation:
@@ -33,36 +40,40 @@ nfr_validation:
     status: PASS
     notes: "API 继续校验租户与内部密钥，集成测试覆盖未授权/越权路径。"
   performance:
-    status: FAIL
-    notes: "Queue SLO pytest 崩溃，队列等待 P95 ≤120s 目标未验证，需修复后再观察指标。"
-  reliability:
     status: PASS
-    notes: "并发闸门、重试、Top-N 聚合与线程安全场景均有单元/集成测试覆盖。"
+    notes: "Queue SLO pytest 已恢复并通过（仍有 datetime.utcnow 弃用警告需后续治理）。"
+  reliability:
+    status: FAIL
+    notes: "Top-N 排序在最小化指标下返回错误结果，直接破坏 AC4。"
   maintainability:
     status: CONCERNS
-    notes: "测试与实现契约未对齐（totalTasks 缺失），建议统一接口避免回归。"
+    notes: "Playwright 拦截错误导致测试未覆盖目标路径，需修正以防回归。"
 
 evidence:
-  tests_reviewed: 9
-  risks_identified: 1
+  tests_reviewed: 11
+  risks_identified: 2
   trace:
-    ac_covered: [1, 2, 3, 4]
-    ac_gaps: [5]
+    ac_covered: [1, 2, 3]
+    ac_gaps: [4, 5]
   story_file: docs/stories/2.2.queue-orchestration.md
   traceability: docs/qa/assessments/2.2-trace-20250923.md
   nfr_assessment: docs/qa/assessments/2.2-nfr-20250923.md
   test_design: docs/qa/assessments/2.2-test-design-20250923.md
 
-quality_score: 80
-expires: "2025-10-09T02:00:00Z"
+quality_score: 62
+expires: "2025-10-10T02:00:00Z"
 
 recommendations:
   immediate:
-    - action: "修复 orchestrator totalTasks 字段缺失或调整 test_queue_slo 读取数据来源"
+    - action: "依据 EarlyStopPolicy.mode 调整 Top-N 排序方向，并补充针对 mode=\"min\" 的单测/集成测试"
       refs:
         - "services/backtest/app/orchestrator.py"
-        - "services/backtest/tests/test_queue_slo.py"
-  future:
-    - action: "为 queue_wait_seconds 指标配置报警阈值脚本"
+        - "services/backtest/tests/test_orchestrator.py"
+    - action: "修复 Playwright route 拦截表达式，验证 UI 节流与 Top-N 展示"
       refs:
-        - "services/backtest/app/observability.py"
+        - "apps/web/e2e/optimizations-detail.spec.ts"
+  future:
+    - action: "清理 orchestrator/worker datetime.utcnow 弃用告警并统一时间处理"
+      refs:
+        - "services/backtest/app/orchestrator.py"
+        - "services/backtest/app/worker.py"
