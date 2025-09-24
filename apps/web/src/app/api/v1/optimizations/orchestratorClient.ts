@@ -331,10 +331,13 @@ function refreshSummary(state: InMemoryJobState) {
     topN: topCandidates,
   };
   job.updatedAt = new Date().toISOString();
-  if (running > 0) {
+  const hasFailed = tasks.some((task) => task.status === "failed");
+  if (finished >= job.totalTasks) {
+    job.status = hasFailed ? "failed" : "succeeded";
+  } else if (running > 0) {
     job.status = "running";
-  } else if (finished >= job.totalTasks) {
-    job.status = "succeeded";
+  } else {
+    job.status = "queued";
   }
 }
 

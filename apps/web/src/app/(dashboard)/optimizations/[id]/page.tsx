@@ -54,6 +54,7 @@ function OptimizationStatusView({ jobId }: { jobId: string }) {
     status?.diagnostics.throttled || (status?.summary?.throttled ?? 0) > 0,
   );
   const topN = status?.summary?.topN ?? [];
+  const topNSortingNote = describeTopNSorting(topN);
 
   return (
     <main className="p-4 space-y-6" data-testid="optimizations-detail">
@@ -129,9 +130,7 @@ function OptimizationStatusView({ jobId }: { jobId: string }) {
       <section className="space-y-3">
         <header className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">Top-N 子任务</h2>
-          <span className="text-xs text-gray-500">
-            根据得分降序展示，实时刷新
-          </span>
+          <span className="text-xs text-gray-500">{topNSortingNote}</span>
         </header>
         <div className="overflow-x-auto border rounded" data-testid="optimizations-topn">
           <table className="min-w-full text-sm">
@@ -203,4 +202,21 @@ function translateStatus(status: string): string {
     canceled: "已取消",
   };
   return mapping[status] ?? status;
+}
+
+export function describeTopNSorting(topN: OptimizationStatus["summary"]["topN"]): string {
+  if (!Array.isArray(topN) || topN.length < 2) {
+    return "根据得分排序展示，实时刷新";
+  }
+  const first = topN[0]?.score;
+  const last = topN[topN.length - 1]?.score;
+  if (typeof first === "number" && typeof last === "number") {
+    if (first > last) {
+      return "根据得分降序展示，实时刷新";
+    }
+    if (first < last) {
+      return "根据得分升序展示，实时刷新";
+    }
+  }
+  return "根据得分排序展示，实时刷新";
 }

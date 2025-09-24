@@ -115,6 +115,37 @@ describe("GET /api/v1/optimizations/:id/status", () => {
     ]);
   });
 
+  it("marks optimization as failed when any task finishes with failure", async () => {
+    seedVersionOwnership("v-fail", "test-owner");
+    const postRes = await POST(
+      makePost({
+        versionId: "v-fail",
+        paramSpace: {
+          alpha: [0.1, 0.2],
+        },
+        concurrencyLimit: 1,
+      }),
+    );
+    expect(postRes.status).toBe(202);
+    const { id } = (await postRes.json()) as { id: string };
+
+    const store = (globalThis as any)[Symbol.for("opt.jobs.store")] as
+      | { jobs: Map<string, { tasks: any[] }> }
+      | undefined;
+    const state = store?.jobs.get(id);
+    expect(state).toBeTruthy();
+    const tasks = state!.tasks as any[];
+    expect(tasks.length).toBe(2);
+    tasks[0].status = "succeeded";
+    tasks[1].status = "failed";
+
+    const res = await GET(makeGet(id) as any, { params: { id } });
+    expect(res.status).toBe(200);
+    const payload = (await res.json()) as any;
+    expect(payload.status).toBe("failed");
+    expect(payload.summary.finished).toBe(2);
+  });
+
   it("returns 403 when job belongs to another owner", async () => {
     seedVersionOwnership("v-forbidden", "test-owner");
     const postRes = await POST(
