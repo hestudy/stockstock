@@ -190,6 +190,26 @@ def test_top_n_updates_on_completion():
     assert [entry["score"] for entry in top_n] == [1.2, 0.9, 0.5]
 
 
+def test_top_n_respects_min_mode():
+    result = create_optimization_job(
+        owner_id="owner-1",
+        version_id="v-1",
+        param_space={"x": [1, 2, 3]},
+        concurrency_limit=2,
+        early_stop_policy={"metric": "loss", "threshold": 0.2, "mode": "min"},
+    )
+    job_id = result["id"]
+    first = dequeue_next("owner-1", job_id)
+    second = dequeue_next("owner-1", job_id)
+    mark_task_succeeded(job_id, first["id"], score=0.42)
+    mark_task_succeeded(job_id, second["id"], score=0.18)
+    third = dequeue_next("owner-1", job_id)
+    mark_task_succeeded(job_id, third["id"], score=0.36)
+    status = get_job_status(job_id, "owner-1")
+    top_scores = [entry["score"] for entry in status["summary"]["topN"]]
+    assert top_scores == [0.18, 0.36, 0.42]
+
+
 def test_get_job_status_enforces_owner():
     result = create_optimization_job(
         owner_id="owner-1",

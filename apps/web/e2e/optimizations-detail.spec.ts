@@ -28,13 +28,16 @@ const STATUS_PAYLOAD = {
 test.describe("Optimizations Detail — Top-N & Throttle", () => {
   test("renders throttling banner and sorted topN table", async ({ page }) => {
     // 拦截状态轮询，提供稳定的返回数据
-    await page.route(/\/api\/v1\/optimizations\/${JOB_ID}\/status/, async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(STATUS_PAYLOAD),
-      });
-    });
+    await page.route(
+      new RegExp(`/api/v1/optimizations/${JOB_ID}/status`),
+      async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(STATUS_PAYLOAD),
+        });
+      },
+    );
 
     // 鉴权绕过（参照其他 E2E 用例）
     await page.context().addCookies([

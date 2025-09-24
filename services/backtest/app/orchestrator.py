@@ -471,7 +471,16 @@ def _refresh_summary(job: OptimizationJob) -> None:
     throttled = sum(1 for task in tasks if task.throttled)
     top_limit = get_top_n_limit()
     scored = [task for task in tasks if task.score is not None]
-    scored.sort(key=lambda t: t.score if t.score is not None else float("-inf"), reverse=True)
+    mode = "max"
+    if job.early_stop_policy and isinstance(job.early_stop_policy.mode, str):
+        mode = job.early_stop_policy.mode.lower()
+
+    def _topn_key(task: OptimizationTask) -> float:
+        if task.score is None:
+            return float("inf") if mode == "min" else float("-inf")
+        return float(task.score)
+
+    scored.sort(key=_topn_key, reverse=mode != "min")
     top_n = [{"taskId": task.id, "score": float(task.score)} for task in scored[:top_limit]]
     job.summary = OptimizationSummary(
         total=job.total_tasks,
