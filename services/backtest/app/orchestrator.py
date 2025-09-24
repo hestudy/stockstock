@@ -501,15 +501,23 @@ def _refresh_summary(job: OptimizationJob) -> None:
 
 
 def _activate_slots(job: OptimizationJob) -> None:
-    running = _count_status(job.id, "running")
-    capacity = max(job.concurrency_limit - running, 0)
-    if capacity <= 0:
+    tasks = _TASKS.get(job.id)
+    if not tasks:
         return
     now = datetime.utcnow()
+    running = _count_status(job.id, "running")
+    ready = sum(
+        1
+        for task in tasks.values()
+        if task.status == "queued" and not task.throttled and task.next_run_at <= now
+    )
+    capacity = max(job.concurrency_limit - running - ready, 0)
+    if capacity <= 0:
+        return
     for task_id in _TASK_ORDER[job.id]:
         if capacity <= 0:
             break
-        task = _TASKS[job.id][task_id]
+        task = tasks[task_id]
         if task.status == "queued" and task.throttled:
             task.throttled = False
             task.next_run_at = min(task.next_run_at, now)

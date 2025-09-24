@@ -117,7 +117,26 @@ def test_dequeue_and_concurrency_gate():
     assert next_task["id"] != first["id"]
     status = get_job_status(job_id, "owner-1")
     assert status["summary"]["running"] == 2  # one finished, one running, one newly dispatched
-    assert status["summary"]["throttled"] == 0
+    assert status["summary"]["throttled"] == 1
+
+
+def test_queue_depth_reflects_throttled_when_capacity_full():
+    result = create_optimization_job(
+        owner_id="owner-1",
+        version_id="v-1",
+        param_space={"x": [1, 2, 3, 4]},
+        concurrency_limit=2,
+    )
+    job_id = result["id"]
+    first = dequeue_next("owner-1", job_id)
+    second = dequeue_next("owner-1", job_id)
+    assert first is not None
+    assert second is not None
+
+    status = get_job_status(job_id, "owner-1")
+    assert status["summary"]["running"] == 2
+    assert status["summary"]["throttled"] == 2
+    assert status["diagnostics"]["queueDepth"] == 2
 
 
 def test_mark_task_failed_applies_retry_backoff():
