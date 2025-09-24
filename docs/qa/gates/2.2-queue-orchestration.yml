@@ -2,14 +2,21 @@
 schema: 1
 story: "2.2"
 story_title: "Queue Orchestration"
-gate: "PASS" # PASS|CONCERNS|FAIL|WAIVED
-status_reason: "Top-N 聚合已依据 early-stop 模式选择排序方向，Playwright 拦截修复后端到端用例命中 stub 并通过。"
+gate: "CONCERNS" # PASS|CONCERNS|FAIL|WAIVED
+status_reason: "Next.js 编排器回退实现忽略 early-stop 最小化排序，测试/本地默认配置下 Top-N 顺序被反转，需补齐与 Python orchestrator 一致的排序逻辑及覆盖。"
 reviewer: "Quinn (Test Architect)"
-updated: "2025-09-27T02:00:00Z"
+updated: "2025-09-27T05:30:00Z"
 
 waiver: { active: false }
 
-top_issues: []
+top_issues:
+  - id: "QA-2.2-TOPN-FALLBACK"
+    title: "本地 orchestrator 回退忽略 min 模式导致 Top-N 顺序错误"
+    severity: high
+    evidence:
+      - "apps/web/src/app/api/v1/optimizations/orchestratorClient.ts:314"
+      - "docs/stories/2.2.queue-orchestration.md#QA Results"
+    recommendation: "在回退实现中按 earlyStopPolicy.mode 排序并补充最小化场景测试"
 
 trace:
   totals:
@@ -29,8 +36,8 @@ nfr_validation:
     status: PASS
     notes: "Queue SLO pytest 已恢复并通过（仍有 datetime.utcnow 弃用警告需后续治理）。"
   reliability:
-    status: PASS
-    notes: "Top-N 排序已按 early-stop 模式选择升降序，最小化场景覆盖通过。"
+    status: CONCERNS
+    notes: "Next.js 回退路径未根据 early-stop 最小化排序 Top-N，dev/test 默认配置可能返回错误排名。"
   maintainability:
     status: PASS
     notes: "Playwright 拦截表达式修复，端到端测试命中 stub 并验证 UI。"
@@ -46,8 +53,8 @@ evidence:
   nfr_assessment: docs/qa/assessments/2.2-nfr-20250923.md
   test_design: docs/qa/assessments/2.2-test-design-20250923.md
 
-quality_score: 90
-expires: "2025-10-10T02:00:00Z"
+quality_score: 82
+expires: "2025-10-05T05:30:00Z"
 
 recommendations:
   immediate: []
