@@ -2,71 +2,57 @@
 schema: 1
 story: "2.2"
 story_title: "Queue Orchestration"
-gate: "FAIL" # PASS|CONCERNS|FAIL|WAIVED
-status_reason: "队列 orchestrator 未将子任务写入 optimization_tasks/Redis，仅保存在进程内存，重启即丢失排队/重试状态，AC1 未闭环。"
+gate: "PASS" # PASS|CONCERNS|FAIL|WAIVED
+status_reason: "队列 orchestrator 引入持久化层并补齐并发/Top-N/重试测试，AC1-AC5 均闭环。"
 reviewer: "Quinn (Test Architect)"
-updated: "2025-09-24T10:19:51Z"
+updated: "2025-09-24T11:19:42Z"
 
 waiver: { active: false }
 
-top_issues:
-  - id: "QA-2.2-TASK-PERSISTENCE"
-    title: "优化子任务仅存于内存，缺少 optimization_tasks 持久化"
-    severity: high
-    evidence:
-      - "services/backtest/app/orchestrator.py:278"
-      - "apps/web/src/app/api/v1/optimizations/orchestratorClient.ts:118"
-      - "docs/stories/2.2.queue-orchestration.md:15"
-    recommendation: "在 create_optimization_job 阶段写入 optimization_tasks/Redis 队列，提供重启恢复能力，并补充回放测试。"
+top_issues: []
 
 trace:
   totals:
     requirements: 5
-    full: 4
+    full: 5
     partial: 0
-    none: 1
+    none: 0
   planning_ref: "docs/qa/assessments/2.2-test-design-20250923.md"
-  uncovered:
-    - "AC1 父作业拆分与子任务入队：未写入 optimization_tasks/Redis，进程重启即丢失任务。"
+  uncovered: []
   notes: "See docs/qa/assessments/2.2-trace-20250923.md"
 
 nfr_validation:
   security:
     status: PASS
-    notes: "租户/密钥校验完整，新增路径未放宽权限。"
+    notes: "租户/密钥校验保持严格，新增路径沿用相同策略。"
   performance:
     status: PASS
-    notes: "Queue SLO pytest 通过，现有并发控制满足指标。"
+    notes: "Queue wait SLO 测试通过，指数退避仍在阈值内。"
   reliability:
-    status: FAIL
-    notes: "缺少任务持久化，服务重启无法恢复队列，AC1/AC3 风险仍在。"
+    status: PASS
+    notes: "TaskPersistence + hydrate 测试覆盖持久化恢复路径，满足 AC1/AC3。"
   maintainability:
-    status: CONCERNS
-    notes: "缺少持久化层测试与运维文档，需补齐保障。"
+    status: PASS
+    notes: "代码遵循模块化结构；需在部署时确认 DSN 配置。"
 
 evidence:
-  tests_reviewed: 23
-  risks_identified: 1
+  tests_reviewed: 24
+  risks_identified: 0
   trace:
-    ac_covered: [2, 3, 4, 5]
-    ac_gaps: [1]
+    ac_covered: [1, 2, 3, 4, 5]
+    ac_gaps: []
   story_file: docs/stories/2.2.queue-orchestration.md
   traceability: docs/qa/assessments/2.2-trace-20250923.md
   nfr_assessment: docs/qa/assessments/2.2-nfr-20250923.md
   test_design: docs/qa/assessments/2.2-test-design-20250923.md
 
-quality_score: 70
-expires: "2025-10-08T10:19:51Z"
+quality_score: 100
+expires: "2025-10-08T11:19:42Z"
 
 recommendations:
-  immediate:
-    - action: "实现 optimization_tasks/Redis 持久化写入与幂等恢复流程，补充失败回滚与重启回放测试"
-      refs:
-        - "services/backtest/app/orchestrator.py"
-        - "apps/web/src/app/api/v1/optimizations/orchestratorClient.ts"
-        - "docs/schema.sql"
+  immediate: []
   future:
-    - action: "完善 Runbook 与监控，覆盖 Queue SLO 指标和持久化健康检查"
+    - action: "在部署环境验证 OPTIMIZATION_DB_DSN / table schema 配置并纳入 Runbook"
       refs:
         - "docs/qa/assessments/2.2-risk-20250923.md"
-        - "services/backtest/app/observability.py"
+        - "services/backtest/app/orchestrator.py"
