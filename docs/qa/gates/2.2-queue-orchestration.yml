@@ -3,31 +3,36 @@ schema: 1
 story: "2.2"
 story_title: "Queue Orchestration"
 gate: "FAIL" # PASS|CONCERNS|FAIL|WAIVED
-status_reason: "Python orchestrator 在并发饱和时将所有排队任务提前解除 throttle，`summary.throttled`/`diagnostics.queueDepth` 被错误清零，AC2/AC4 要求的排队可观测性失效。"
+status_reason: "Next.js fallback orchestrator 在存在失败子任务时仍返回 job.status=succeeded，违背 AC4 对进度聚合的可靠性要求；需先修复再交付。"
 reviewer: "Quinn (Test Architect)"
-updated: "2025-09-24T08:31:18Z"
+updated: "2025-09-24T09:12:11Z"
 
 waiver: { active: false }
 
 top_issues:
-  - id: "QA-2.2-QUEUE-DEPTH"
-    title: "并发饱和时状态接口的 throttled/queueDepth 丢失排队信息"
+  - id: "QA-2.2-FALLBACK-STATUS"
+    title: "Fallback orchestrator 将失败作业标记为 succeeded"
     severity: high
     evidence:
-      - "services/backtest/app/orchestrator.py:503"
+      - "apps/web/src/app/api/v1/optimizations/orchestratorClient.ts:334"
       - "docs/stories/2.2.queue-orchestration.md#QA Results"
-    recommendation: "修正 `_activate_slots` 的容量计算，确保仅释放所需任务并维持 throttled 计数，新增单测覆盖排队指标在并发饱和场景下的正确性"
+    recommendation: "比照 Python orchestrator，在 `refreshSummary` 中检测失败/取消任务并将 `job.status` 置为 failed；补充对应单测覆盖。"
+  - id: "QA-2.2-TOPN-COPY"
+    title: "Top-N 文案未区分最小化模式"
+    severity: medium
+    evidence:
+      - "apps/web/src/app/(dashboard)/optimizations/[id]/page.tsx:133"
+    recommendation: "根据 earlyStopPolicy.mode 或返回的 Top-N 顺序动态调整说明文案，避免与实际排序矛盾。"
 
 trace:
   totals:
     requirements: 5
-    full: 3
-    partial: 1
+    full: 4
+    partial: 0
     none: 1
   planning_ref: "docs/qa/assessments/2.2-test-design-20250923.md"
   uncovered:
-    - "AC2 并发闸门与排队限制：队列深度指标失真"
-    - "AC4 进度聚合与 Top-N：状态接口无法正确反馈排队信息"
+    - "AC4 进度聚合与 Top-N：fallback job.status 未对失败结果做降级，用户无法看到整体失败态。"
   notes: "See docs/qa/assessments/2.2-trace-20250923.md"
 
 nfr_validation:
@@ -35,37 +40,38 @@ nfr_validation:
     status: PASS
     notes: "API 继续校验租户与内部密钥，集成测试覆盖未授权/越权路径。"
   performance:
-    status: CONCERNS
-    notes: "Queue SLO pytest 通过，但需在修复 throttled 统计后回归指标，现阶段数据可能被稀释。"
+    status: PASS
+    notes: "Queue SLO pytest 通过并验证 P95≤120s，当前实现满足队列吞吐指标。"
   reliability:
     status: FAIL
-    notes: "核心 orchestrator 在并发饱和时丢失队列深度观测，依赖该诊断信息的告警与 UI 全部失效。"
+    notes: "Fallback orchestrator 误判失败作业为成功，核心进度聚合失真；修复前不可发布。"
   maintainability:
-    status: PASS
-    notes: "Playwright 拦截表达式修复，端到端测试命中 stub 并验证 UI。"
+    status: CONCERNS
+    notes: "UI 文案需与模式保持一致，另有 utcnow 弃用警告待后续集中治理。"
 
 evidence:
-  tests_reviewed: 12
+  tests_reviewed: 14
   risks_identified: 1
   trace:
-    ac_covered: [1, 3, 5]
-    ac_gaps: [2, 4]
+    ac_covered: [1, 2, 3, 5]
+    ac_gaps: [4]
   story_file: docs/stories/2.2.queue-orchestration.md
   traceability: docs/qa/assessments/2.2-trace-20250923.md
   nfr_assessment: docs/qa/assessments/2.2-nfr-20250923.md
   test_design: docs/qa/assessments/2.2-test-design-20250923.md
 
-quality_score: 60
-expires: "2025-10-08T08:31:18Z"
+quality_score: 70
+expires: "2025-10-08T09:12:17Z"
 
 recommendations:
   immediate:
-    - action: "修复 `_activate_slots` 逻辑并补充单测验证 throttled/queueDepth 在并发饱和场景仍保持正确"
+    - action: "修复 fallback orchestrator 的作业状态判定并补充测试覆盖"
       refs:
-        - "services/backtest/app/orchestrator.py"
-        - "services/backtest/tests/test_orchestrator.py"
+        - "apps/web/src/app/api/v1/optimizations/orchestratorClient.ts"
+        - "apps/web/src/app/api/v1/optimizations/__tests__/status.route.int.test.ts"
   future:
-    - action: "清理 orchestrator/worker datetime.utcnow 弃用告警并统一时间处理"
+    - action: "统一 UI 文案与排序模式，并规划 utcnow 弃用警告的技术债治理"
       refs:
+        - "apps/web/src/app/(dashboard)/optimizations/[id]/page.tsx"
         - "services/backtest/app/orchestrator.py"
         - "services/backtest/app/worker.py"
