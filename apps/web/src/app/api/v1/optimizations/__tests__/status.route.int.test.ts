@@ -73,6 +73,48 @@ describe("GET /api/v1/optimizations/:id/status", () => {
     expect(payload.summary.finished).toBe(0);
   });
 
+  it("orders Top-N ascending when early stop mode is min", async () => {
+    seedVersionOwnership("v-min", "test-owner");
+    const postRes = await POST(
+      makePost({
+        versionId: "v-min",
+        paramSpace: {
+          alpha: [0.1, 0.2, 0.3],
+        },
+        concurrencyLimit: 3,
+        earlyStopPolicy: {
+          metric: "drawdown",
+          threshold: 0.5,
+          mode: "min",
+        },
+      }),
+    );
+    expect(postRes.status).toBe(202);
+    const { id } = (await postRes.json()) as { id: string };
+
+    const store = (globalThis as any)[Symbol.for("opt.jobs.store")] as
+      | { jobs: Map<string, { tasks: any[] }> }
+      | undefined;
+    const state = store?.jobs.get(id);
+    expect(state).toBeTruthy();
+    const tasks = state!.tasks as any[];
+    tasks[0].status = "succeeded";
+    tasks[0].score = 1.4;
+    tasks[1].status = "succeeded";
+    tasks[1].score = 0.5;
+    tasks[2].status = "succeeded";
+    tasks[2].score = 0.9;
+
+    const res = await GET(makeGet(id) as any, { params: { id } });
+    expect(res.status).toBe(200);
+    const payload = (await res.json()) as any;
+    expect(payload.summary.topN).toEqual([
+      { taskId: tasks[1].id, score: 0.5 },
+      { taskId: tasks[2].id, score: 0.9 },
+      { taskId: tasks[0].id, score: 1.4 },
+    ]);
+  });
+
   it("returns 403 when job belongs to another owner", async () => {
     seedVersionOwnership("v-forbidden", "test-owner");
     const postRes = await POST(

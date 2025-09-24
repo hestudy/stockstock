@@ -309,9 +309,18 @@ function refreshSummary(state: InMemoryJobState) {
   ).length;
   const running = tasks.filter((task) => task.status === "running").length;
   const throttled = tasks.filter((task) => task.throttled).length;
+  const mode =
+    typeof job.earlyStopPolicy?.mode === "string" &&
+    job.earlyStopPolicy.mode.toLowerCase() === "min"
+      ? "min"
+      : "max";
   const topCandidates = tasks
     .filter((task) => typeof task.score === "number")
-    .sort((a, b) => (b.score ?? -Infinity) - (a.score ?? -Infinity))
+    .sort((a, b) => {
+      const aScore = a.score as number;
+      const bScore = b.score as number;
+      return mode === "min" ? aScore - bScore : bScore - aScore;
+    })
     .slice(0, TOP_N_LIMIT)
     .map((task) => ({ taskId: task.id, score: task.score as number }));
   job.summary = {
