@@ -11,7 +11,8 @@
     "dev": "turbo run dev --parallel",
     "build": "turbo run build",
     "lint": "turbo run lint",
-    "test": "turbo run test",
+    "test": "turbo run test && pnpm python:test",
+    "python:test": "python3 -m pytest services/backtest/tests --maxfail=1 --disable-warnings",
     "format": "prettier -w .",
     "format:check": "prettier -c ."
   },
