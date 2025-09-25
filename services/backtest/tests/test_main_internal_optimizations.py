@@ -141,3 +141,48 @@ def test_cancel_endpoint_marks_job_and_returns_reason():
         headers={"x-opt-shared-secret": "secret", "x-owner-id": "other"},
     )
     assert forbidden.status_code == 403
+
+
+def test_snapshot_endpoint_returns_source_job_id():
+    os.environ["OPTIMIZATION_ORCHESTRATOR_SECRET"] = "secret"
+    create = client.post(
+        "/internal/optimizations",
+        json=payload(sourceJobId="origin-1"),
+        headers={"x-opt-shared-secret": "secret", "x-owner-id": "owner-1"},
+    )
+    job_id = create.json()["id"]
+    resp = client.get(
+        f"/internal/optimizations/{job_id}",
+        headers={"x-opt-shared-secret": "secret", "x-owner-id": "owner-1"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["id"] == job_id
+    assert body["sourceJobId"] == "origin-1"
+
+
+def test_export_endpoint_returns_topn_bundle():
+    os.environ["OPTIMIZATION_ORCHESTRATOR_SECRET"] = "secret"
+    create = client.post(
+        "/internal/optimizations",
+        json=payload(),
+        headers={"x-opt-shared-secret": "secret", "x-owner-id": "owner-1"},
+    )
+    job_id = create.json()["id"]
+    tasks = orchestrator.debug_tasks(job_id)
+    for idx, task in enumerate(tasks[:2]):
+        orchestrator.mark_task_succeeded(
+            job_id,
+            task.id,
+            score=1.0 - idx * 0.1,
+            result_summary_id=f"summary-{idx}",
+        )
+    resp = client.post(
+        f"/internal/optimizations/{job_id}/export",
+        headers={"x-opt-shared-secret": "secret", "x-owner-id": "owner-1"},
+    )
+    assert resp.status_code == 200
+    bundle = resp.json()
+    assert bundle["jobId"] == job_id
+    assert len(bundle["items"]) >= 1
+    assert bundle["items"][0]["artifacts"][0]["type"] == "metrics"

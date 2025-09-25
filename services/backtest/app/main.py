@@ -20,6 +20,8 @@ from .orchestrator import (
     create_optimization_job,
     debug_jobs,
     get_job_status,
+    get_job_snapshot,
+    export_top_n_bundle,
 )
 
 logger = structlog.get_logger()
@@ -121,6 +123,7 @@ class OptimizationCreateReq(BaseModel):
     concurrencyLimit: int = Field(2, ge=1)
     earlyStopPolicy: Optional[EarlyStopPolicyModel] = None
     estimate: int = Field(..., ge=1)
+    sourceJobId: Optional[str] = None
 
     @field_validator("paramSpace")
     @classmethod
@@ -162,6 +165,7 @@ async def optimizations(
             concurrency_limit=req.concurrencyLimit,
             early_stop_policy=req.earlyStopPolicy.dict() if req.earlyStopPolicy else None,
             estimate=req.estimate,
+            source_job_id=req.sourceJobId,
         )
         logger.info("optimization_job_created", job=payload, total_jobs=len(debug_jobs()))
         return payload
@@ -199,6 +203,27 @@ async def optimization_status(
         ) from exc
 
 
+@app.get("/internal/optimizations/{job_id}")
+async def optimization_snapshot(
+    job_id: str,
+    _secret: None = Depends(require_internal_secret),
+    owner_header: Optional[str] = Header(None, alias="x-owner-id"),
+):
+    if not owner_header:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "E.PARAM_INVALID", "message": "x-owner-id header required"},
+        )
+    try:
+        payload = get_job_snapshot(job_id, owner_header)
+        return payload
+    except JobAccessError as exc:
+        raise HTTPException(
+            status_code=exc.status,
+            detail={"code": exc.code, "message": str(exc), "details": exc.details},
+        ) from exc
+
+
 @app.post("/internal/optimizations/{job_id}/cancel")
 async def optimization_cancel(
     job_id: str,
@@ -213,6 +238,27 @@ async def optimization_cancel(
         )
     try:
         payload = cancel_job(job_id, owner_header, reason=req.reason)
+        return payload
+    except JobAccessError as exc:
+        raise HTTPException(
+            status_code=exc.status,
+            detail={"code": exc.code, "message": str(exc), "details": exc.details},
+        ) from exc
+
+
+@app.post("/internal/optimizations/{job_id}/export")
+async def optimization_export(
+    job_id: str,
+    _secret: None = Depends(require_internal_secret),
+    owner_header: Optional[str] = Header(None, alias="x-owner-id"),
+):
+    if not owner_header:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "E.PARAM_INVALID", "message": "x-owner-id header required"},
+        )
+    try:
+        payload = export_top_n_bundle(job_id, owner_header)
         return payload
     except JobAccessError as exc:
         raise HTTPException(

@@ -41,6 +41,11 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   get: <T>(path: string) => http<T>(path, { method: "GET" }),
-  post: <T>(path: string, body?: unknown) =>
-    http<T>(path, { method: "POST", body: JSON.stringify(body) }),
+  post: <T>(path: string, body?: unknown) => {
+    const init: RequestInit = { method: "POST" };
+    if (body !== undefined) {
+      init.body = JSON.stringify(body);
+    }
+    return http<T>(path, init);
+  },
 };

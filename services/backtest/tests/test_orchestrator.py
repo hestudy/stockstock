@@ -16,6 +16,8 @@ from services.backtest.app.orchestrator import (
     debug_tasks,
     dequeue_next,
     get_job_status,
+    get_job_snapshot,
+    export_top_n_bundle,
     mark_task_failed,
     mark_task_succeeded,
 )
@@ -197,6 +199,61 @@ def test_mark_task_failed_applies_retry_backoff():
     failed_again = mark_task_failed(job_id, task["id"], error_type="UPSTREAM_ERROR", message="timeout")
     assert failed_again["retries"] == 2
 
+
+def test_summary_topn_includes_result_summary_id():
+    result = create_optimization_job(
+        owner_id="owner-1",
+        version_id="v-1",
+        param_space={"x": [1]},
+        concurrency_limit=1,
+    )
+    job_id = result["id"]
+    task = dequeue_next("owner-1", job_id)
+    mark_task_succeeded(job_id, task["id"], score=0.42, result_summary_id="summary-abc")
+    snapshot = get_job_status(job_id, "owner-1")
+    topn = snapshot["summary"]["topN"]
+    assert topn
+    assert topn[0]["resultSummaryId"] == "summary-abc"
+
+
+def test_export_top_n_bundle_contains_artifacts():
+    result = create_optimization_job(
+        owner_id="owner-1",
+        version_id="v-1",
+        param_space={"x": [1, 2, 3]},
+        concurrency_limit=3,
+    )
+    job_id = result["id"]
+    tasks = debug_tasks(job_id)
+    for index, task in enumerate(tasks[:2]):
+        mark_task_succeeded(
+            job_id,
+            task.id,
+            score=1.0 - index * 0.1,
+            result_summary_id=f"summary-{index}",
+        )
+    bundle = export_top_n_bundle(job_id, "owner-1")
+    assert bundle["jobId"] == job_id
+    assert bundle["items"]
+    first = bundle["items"][0]
+    assert first["resultSummaryId"].startswith("summary-")
+    assert first["artifacts"][0]["type"] == "metrics"
+    assert "score" in first["metrics"]
+
+
+def test_get_job_snapshot_reports_source_job():
+    result = create_optimization_job(
+        owner_id="owner-1",
+        version_id="v-1",
+        param_space={"x": [1, 2]},
+        concurrency_limit=2,
+        source_job_id="original-123",
+    )
+    job_id = result["id"]
+    snapshot = get_job_snapshot(job_id, "owner-1")
+    assert snapshot["id"] == job_id
+    assert snapshot["sourceJobId"] == "original-123"
+    assert snapshot["paramSpace"] == {"x": [1, 2]}
 
 def test_param_error_marks_failed_and_counts_finished():
     result = create_optimization_job(

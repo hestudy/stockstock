@@ -19,9 +19,14 @@ export type OptimizationSubmitResponse = {
   id: string;
   status: JobStatus;
   throttled?: boolean;
+  sourceJobId?: string;
 };
 
-export type OptimizationTopNEntry = { taskId: string; score: number };
+export type OptimizationTopNEntry = {
+  taskId: string;
+  score: number;
+  resultSummaryId?: string;
+};
 
 export type OptimizationStopReason = {
   kind: string;
@@ -51,6 +56,8 @@ export type OptimizationStatus = {
   concurrencyLimit: number;
   summary: OptimizationSummary;
   diagnostics: OptimizationDiagnostics;
+  earlyStopPolicy?: EarlyStopPolicy;
+  sourceJobId?: string;
 };
 
 export type OptimizationJob = {
@@ -65,6 +72,22 @@ export type OptimizationJob = {
   summary?: OptimizationSummary;
   createdAt: string;
   updatedAt: string;
+  sourceJobId?: string;
+};
+
+export type OptimizationJobSnapshot = {
+  id: string;
+  ownerId: string;
+  versionId: string;
+  paramSpace: Record<string, unknown>;
+  concurrencyLimit: number;
+  earlyStopPolicy?: EarlyStopPolicy;
+  status: JobStatus;
+  totalTasks: number;
+  summary: OptimizationSummary;
+  createdAt: string;
+  updatedAt: string;
+  sourceJobId?: string;
 };
 
 export type OptimizationTask = {
@@ -84,4 +107,21 @@ export type OptimizationTask = {
   lastError?: { code: string; message: string };
   createdAt: string;
   updatedAt: string;
+};
+
+export type OptimizationExportItem = {
+  taskId: string;
+  score: number | null;
+  params: Record<string, unknown>;
+  resultSummaryId?: string;
+  metrics?: Record<string, number | undefined>;
+  artifacts?: Array<{ type: string; url: string }>;
+};
+
+export type OptimizationExportBundle = {
+  jobId: string;
+  status: JobStatus;
+  generatedAt: string;
+  summary: OptimizationSummary;
+  items: OptimizationExportItem[];
 };

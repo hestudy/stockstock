@@ -26,11 +26,21 @@ export type BacktestStatusResponse = {
   retries?: number;
 };
 
+export type ResultArtifact = {
+  type: string;
+  url: string;
+};
+
 export type ResultSummary = {
   id: string;
-  metrics: Record<string, number>;
+  ownerId: string;
+  metrics: Record<string, number | undefined>;
   preview?: string;
   equity?: EquityPoint[];
+  equityCurveRef?: string;
+  tradesRef?: string;
+  artifacts?: ResultArtifact[];
+  createdAt: string;
 };
 
 export type EquityPoint = { t: number; v: number };

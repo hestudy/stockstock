@@ -127,12 +127,14 @@ class OptimizationJob:
     updated_at: str = field(default_factory=iso_now)
     locked_status: Optional[JobStatus] = None
     stop_reason: Optional[Dict[str, Any]] = None
+    source_job_id: Optional[str] = None
 
 
 _JOBS: Dict[str, OptimizationJob] = {}
 _TASKS: Dict[str, Dict[str, OptimizationTask]] = {}
 _TASK_ORDER: Dict[str, List[str]] = {}
 _JOB_ORDER: List[str] = []
+_RESULT_SUMMARIES: Dict[str, Dict[str, Any]] = {}
 _STORE_LOCK = RLock()
 
 if JSON is not None:
@@ -200,6 +202,7 @@ def _clear_memory() -> None:
         _TASKS.clear()
         _TASK_ORDER.clear()
         _JOB_ORDER.clear()
+        _RESULT_SUMMARIES.clear()
 
 
 # ==== Environment helpers ====
@@ -360,6 +363,7 @@ def create_optimization_job(
     concurrency_limit: int,
     early_stop_policy: Optional[Dict[str, Any]] = None,
     estimate: Optional[int] = None,
+    source_job_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     normalized, computed_estimate = summarize_param_space(param_space)
     limit = get_param_limit()
@@ -391,6 +395,7 @@ def create_optimization_job(
         total_tasks=total_tasks,
         estimate=estimate or computed_estimate,
         summary=_initial_summary(total_tasks, tasks),
+        source_job_id=source_job_id,
     )
     with _STORE_LOCK:
         _JOBS[job_id] = job
@@ -411,6 +416,7 @@ def create_optimization_job(
         "status": job.status,
         "throttled": job.summary.throttled > 0,
         "totalTasks": total_tasks,
+        "sourceJobId": source_job_id,
     }
 
 
@@ -464,6 +470,7 @@ def mark_task_succeeded(
         task.next_run_at = datetime.utcnow()
         task.error = None
         task.last_error = None
+        _ensure_result_summary(task)
         if _PERSISTENCE.enabled:
             _PERSISTENCE.update_task(task)
         _activate_slots(job)
@@ -524,6 +531,35 @@ def get_job_status(job_id: str, owner_id: str) -> Dict[str, Any]:
         return _job_payload(job)
 
 
+def get_job_snapshot(job_id: str, owner_id: str) -> Dict[str, Any]:
+    with _STORE_LOCK:
+        job = _JOBS.get(job_id)
+        if not job:
+            raise JobAccessError("optimization job not found", "E.NOT_FOUND", 404, {"jobId": job_id})
+        if job.owner_id != owner_id:
+            raise JobAccessError(
+                "job does not belong to current owner",
+                "E.FORBIDDEN",
+                403,
+                {"jobId": job_id, "ownerId": owner_id},
+            )
+        _refresh_summary(job)
+        return {
+            "id": job.id,
+            "ownerId": job.owner_id,
+            "versionId": job.version_id,
+            "paramSpace": job.param_space,
+            "concurrencyLimit": job.concurrency_limit,
+            "earlyStopPolicy": _policy_to_dict(job.early_stop_policy),
+            "status": job.status,
+            "totalTasks": job.total_tasks,
+            "summary": _summary_to_dict(job.summary),
+            "createdAt": job.created_at,
+            "updatedAt": job.updated_at,
+            "sourceJobId": job.source_job_id,
+        }
+
+
 def cancel_job(job_id: str, owner_id: str, *, reason: Optional[str] = None) -> Dict[str, Any]:
     with _STORE_LOCK:
         job = _JOBS.get(job_id)
@@ -541,6 +577,44 @@ def cancel_job(job_id: str, owner_id: str, *, reason: Optional[str] = None) -> D
             reason_payload["reason"] = reason
         _lock_job(job, "canceled", reason=reason_payload)
         return _job_payload(job)
+
+
+def export_top_n_bundle(job_id: str, owner_id: str) -> Dict[str, Any]:
+    with _STORE_LOCK:
+        job = _JOBS.get(job_id)
+        if not job:
+            raise JobAccessError("optimization job not found", "E.NOT_FOUND", 404, {"jobId": job_id})
+        if job.owner_id != owner_id:
+            raise JobAccessError(
+                "job does not belong to current owner",
+                "E.FORBIDDEN",
+                403,
+                {"jobId": job_id, "ownerId": owner_id},
+            )
+        _refresh_summary(job)
+        task_map = _TASKS.get(job_id, {})
+        items: List[Dict[str, Any]] = []
+        for entry in job.summary.top_n:
+            task_id = entry.get("taskId")
+            task = task_map.get(task_id) if isinstance(task_map, dict) else None
+            summary = _ensure_result_summary(task) if task else None
+            items.append(
+                {
+                    "taskId": task_id,
+                    "score": entry.get("score"),
+                    "params": task.params if task else {},
+                    "resultSummaryId": entry.get("resultSummaryId"),
+                    "metrics": (summary or {}).get("metrics"),
+                    "artifacts": (summary or {}).get("artifacts"),
+                }
+            )
+        return {
+            "jobId": job.id,
+            "status": job.status,
+            "generatedAt": iso_now(),
+            "summary": _summary_to_dict(job.summary),
+            "items": items,
+        }
 
 
 # ==== Internal helpers ====
@@ -583,6 +657,28 @@ def _initial_summary(total: int, tasks: List[OptimizationTask]) -> OptimizationS
     )
 
 
+def _ensure_result_summary(task: OptimizationTask) -> Optional[Dict[str, Any]]:
+    result_id = task.result_summary_id
+    if not result_id:
+        return None
+    summary = _RESULT_SUMMARIES.get(result_id)
+    if summary is None:
+        summary = {
+            "id": result_id,
+            "ownerId": task.owner_id,
+            "metrics": {},
+            "artifacts": _build_artifacts(result_id),
+            "createdAt": iso_now(),
+            "equityCurveRef": f"/artifacts/{result_id}/equity.csv",
+            "tradesRef": f"/artifacts/{result_id}/trades.csv",
+        }
+        _RESULT_SUMMARIES[result_id] = summary
+    if task.score is not None:
+        metrics = summary.setdefault("metrics", {})
+        metrics["score"] = float(task.score)
+    return summary
+
+
 def _refresh_summary(job: OptimizationJob, *, persist: bool = True) -> None:
     tasks = list(_TASKS[job.id].values())
     prev_status = job.status
@@ -602,7 +698,15 @@ def _refresh_summary(job: OptimizationJob, *, persist: bool = True) -> None:
         return float(task.score)
 
     scored.sort(key=_topn_key, reverse=mode != "min")
-    top_n = [{"taskId": task.id, "score": float(task.score)} for task in scored[:top_limit]]
+    top_n = []
+    for task in scored[:top_limit]:
+        summary = _ensure_result_summary(task)
+        entry = {"taskId": task.id, "score": float(task.score)}
+        if task.result_summary_id:
+            entry["resultSummaryId"] = task.result_summary_id
+        if summary and "score" in summary.get("metrics", {}):
+            entry["score"] = float(summary["metrics"]["score"])
+        top_n.append(entry)
     job.summary = OptimizationSummary(
         total=job.total_tasks,
         finished=finished,
@@ -778,6 +882,14 @@ def _lock_job(
         _PERSISTENCE.update_job(job)
 
 
+def _build_artifacts(result_id: str) -> List[Dict[str, str]]:
+    return [
+        {"type": "metrics", "url": f"/artifacts/{result_id}/metrics.json"},
+        {"type": "equity", "url": f"/artifacts/{result_id}/equity.csv"},
+        {"type": "trades", "url": f"/artifacts/{result_id}/trades.csv"},
+    ]
+
+
 def _job_payload(job: OptimizationJob) -> Dict[str, Any]:
     summary = job.summary
     diagnostics: Dict[str, Any] = {
@@ -802,6 +914,8 @@ def _job_payload(job: OptimizationJob) -> Dict[str, Any]:
             "topN": [dict(entry) for entry in summary.top_n],
         },
         "diagnostics": diagnostics,
+        "earlyStopPolicy": _policy_to_dict(job.early_stop_policy),
+        "sourceJobId": job.source_job_id,
     }
 
 

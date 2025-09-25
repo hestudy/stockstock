@@ -1,15 +1,19 @@
 import type {
   JobStatus,
+  OptimizationExportBundle,
   OptimizationJob,
+  OptimizationJobSnapshot,
   OptimizationStatus,
   OptimizationSubmitResponse,
   OptimizationSummary,
   OptimizationTask,
   OptimizationStopReason,
+  ResultSummary,
 } from "@shared/index";
 import type { NormalizedParamSpace, ParamSpace } from "./paramSpace";
 
 const STORE_KEY = Symbol.for("opt.jobs.store");
+const RESULT_STORE_KEY = Symbol.for("opt.results.store");
 const REQUEST_ID_PREFIX = "optreq";
 const SHARED_SECRET_HEADER = "x-opt-shared-secret";
 const OWNER_HEADER = "x-owner-id";
@@ -40,6 +44,21 @@ function getStore(): InMemoryStore {
   return globalStore[STORE_KEY]!;
 }
 
+type ResultSummaryLite = Pick<
+  ResultSummary,
+  "id" | "ownerId" | "metrics" | "artifacts" | "createdAt" | "equityCurveRef" | "tradesRef"
+>;
+
+type ResultStore = Map<string, ResultSummaryLite>;
+
+function getResultStore(): ResultStore {
+  const globalStore = globalThis as typeof globalThis & { [RESULT_STORE_KEY]?: ResultStore };
+  if (!globalStore[RESULT_STORE_KEY]) {
+    globalStore[RESULT_STORE_KEY] = new Map();
+  }
+  return globalStore[RESULT_STORE_KEY]!;
+}
+
 // ==== Public API ====
 export type OptimizationCreateInput = {
   ownerId: string;
@@ -49,6 +68,7 @@ export type OptimizationCreateInput = {
   concurrencyLimit: number;
   earlyStopPolicy?: OptimizationJob["earlyStopPolicy"];
   estimate: number;
+  sourceJobId?: string;
 };
 
 export async function createOptimizationJob(
@@ -82,6 +102,28 @@ export async function cancelOptimizationJob(
     return cancelRemote(target, ownerId, jobId, options);
   }
   return cancelInMemory(ownerId, jobId, options);
+}
+
+export async function exportOptimizationBundle(
+  ownerId: string,
+  jobId: string,
+): Promise<OptimizationExportBundle> {
+  const target = process.env.OPTIMIZATION_ORCHESTRATOR_URL?.trim();
+  if (target) {
+    return exportRemoteBundle(target, ownerId, jobId);
+  }
+  return exportInMemory(ownerId, jobId);
+}
+
+export async function getOptimizationJobSnapshot(
+  ownerId: string,
+  jobId: string,
+): Promise<OptimizationJobSnapshot> {
+  const target = process.env.OPTIMIZATION_ORCHESTRATOR_URL?.trim();
+  if (target) {
+    return fetchRemoteSnapshot(target, ownerId, jobId);
+  }
+  return getInMemorySnapshot(ownerId, jobId);
 }
 
 // ==== Remote orchestrator helpers ====
@@ -121,6 +163,7 @@ async function sendToRemote(
           concurrencyLimit: input.concurrencyLimit,
           earlyStopPolicy: input.earlyStopPolicy,
           estimate: input.estimate,
+          sourceJobId: input.sourceJobId,
         }),
       });
       if (!res.ok) {
@@ -195,6 +238,48 @@ async function cancelRemote(
   return (await res.json()) as OptimizationStatus;
 }
 
+async function fetchRemoteSnapshot(
+  baseUrl: string,
+  ownerId: string,
+  jobId: string,
+): Promise<OptimizationJobSnapshot> {
+  const url = new URL(`/internal/optimizations/${jobId}`, baseUrl).toString();
+  const sharedSecret = process.env.OPTIMIZATION_ORCHESTRATOR_SECRET?.trim();
+  const headers: Record<string, string> = {
+    [OWNER_HEADER]: ownerId,
+    [REQUEST_ID_HEADER]: generateId(REQUEST_ID_PREFIX),
+  };
+  if (sharedSecret) {
+    headers[SHARED_SECRET_HEADER] = sharedSecret;
+  }
+  const res = await fetch(url, { method: "GET", headers });
+  if (!res.ok) {
+    throw await buildRemoteError(res);
+  }
+  return (await res.json()) as OptimizationJobSnapshot;
+}
+
+async function exportRemoteBundle(
+  baseUrl: string,
+  ownerId: string,
+  jobId: string,
+): Promise<OptimizationExportBundle> {
+  const url = new URL(`/internal/optimizations/${jobId}/export`, baseUrl).toString();
+  const sharedSecret = process.env.OPTIMIZATION_ORCHESTRATOR_SECRET?.trim();
+  const headers: Record<string, string> = {
+    [OWNER_HEADER]: ownerId,
+    [REQUEST_ID_HEADER]: generateId(REQUEST_ID_PREFIX),
+  };
+  if (sharedSecret) {
+    headers[SHARED_SECRET_HEADER] = sharedSecret;
+  }
+  const res = await fetch(url, { method: "POST", headers });
+  if (!res.ok) {
+    throw await buildRemoteError(res);
+  }
+  return (await res.json()) as OptimizationExportBundle;
+}
+
 async function buildRemoteError(res: Response) {
   let payload: unknown;
   try {
@@ -244,11 +329,12 @@ function createInMemory(input: OptimizationCreateInput): OptimizationSubmitRespo
     createdAt: now,
     updatedAt: now,
     summary: initializeSummary(totalTasks, tasks),
+    sourceJobId: input.sourceJobId,
   };
   const store = getStore();
   store.jobs.set(id, { job, tasks });
   const throttled = !!(job.summary && job.summary.throttled > 0);
-  return { id, status: job.status, throttled };
+  return { id, status: job.status, throttled, sourceJobId: input.sourceJobId };
 }
 
 function getInMemoryStatus(ownerId: string, jobId: string): OptimizationStatus {
@@ -286,6 +372,8 @@ function getInMemoryStatus(ownerId: string, jobId: string): OptimizationStatus {
     concurrencyLimit: state.job.concurrencyLimit,
     summary,
     diagnostics,
+    earlyStopPolicy: state.job.earlyStopPolicy,
+    sourceJobId: state.job.sourceJobId,
   };
 }
 
@@ -315,6 +403,82 @@ function cancelInMemory(
   }
   lockJob(state, "canceled", reason);
   return getInMemoryStatus(ownerId, jobId);
+}
+
+function exportInMemory(ownerId: string, jobId: string): OptimizationExportBundle {
+  const store = getStore();
+  const state = store.jobs.get(jobId);
+  if (!state) {
+    const err = new Error("optimization job not found");
+    (err as any).code = "E.NOT_FOUND";
+    (err as any).status = 404;
+    throw err;
+  }
+  if (state.job.ownerId !== ownerId) {
+    const err = new Error("job does not belong to current owner");
+    (err as any).code = "E.FORBIDDEN";
+    (err as any).status = 403;
+    throw err;
+  }
+  refreshSummary(state);
+  const summary = cloneSummary(state.job.summary!);
+  const resultStore = getResultStore();
+  const items = summary.topN.map((entry) => {
+    const task = state.tasks.find((candidate) => candidate.id === entry.taskId);
+    if (task) {
+      ensureResultSummary(task, ownerId);
+    }
+    const details = entry.resultSummaryId
+      ? resultStore.get(entry.resultSummaryId)
+      : undefined;
+    return {
+      taskId: entry.taskId,
+      score: typeof entry.score === "number" ? entry.score : null,
+      params: task?.params ?? {},
+      resultSummaryId: entry.resultSummaryId,
+      metrics: details?.metrics,
+      artifacts: details?.artifacts,
+    };
+  });
+  return {
+    jobId: state.job.id,
+    status: state.job.status,
+    generatedAt: new Date().toISOString(),
+    summary,
+    items,
+  };
+}
+
+function getInMemorySnapshot(ownerId: string, jobId: string): OptimizationJobSnapshot {
+  const store = getStore();
+  const state = store.jobs.get(jobId);
+  if (!state) {
+    const err = new Error("optimization job not found");
+    (err as any).code = "E.NOT_FOUND";
+    (err as any).status = 404;
+    throw err;
+  }
+  if (state.job.ownerId !== ownerId) {
+    const err = new Error("job does not belong to current owner");
+    (err as any).code = "E.FORBIDDEN";
+    (err as any).status = 403;
+    throw err;
+  }
+  refreshSummary(state);
+  return {
+    id: state.job.id,
+    ownerId: state.job.ownerId,
+    versionId: state.job.versionId,
+    paramSpace: state.job.paramSpace,
+    concurrencyLimit: state.job.concurrencyLimit,
+    earlyStopPolicy: state.job.earlyStopPolicy,
+    status: state.job.status,
+    totalTasks: state.job.totalTasks,
+    summary: cloneSummary(state.job.summary!),
+    createdAt: state.job.createdAt,
+    updatedAt: state.job.updatedAt,
+    sourceJobId: state.job.sourceJobId,
+  };
 }
 
 function buildInMemoryTasks(
@@ -389,6 +553,43 @@ function cloneSummary(summary: OptimizationSummary): OptimizationSummary {
   };
 }
 
+function ensureResultSummary(
+  task: OptimizationTask,
+  ownerId: string,
+): ResultSummaryLite | null {
+  if (!task.resultSummaryId) {
+    return null;
+  }
+  const store = getResultStore();
+  const existing = store.get(task.resultSummaryId);
+  if (existing) {
+    // Refresh metrics with latest score if provided.
+    if (typeof task.score === "number") {
+      existing.metrics = {
+        ...existing.metrics,
+        score: task.score,
+      };
+    }
+    return existing;
+  }
+  const metrics: Record<string, number | undefined> = {};
+  if (typeof task.score === "number") {
+    metrics.score = task.score;
+  }
+  const createdAt = new Date().toISOString();
+  const summary: ResultSummaryLite = {
+    id: task.resultSummaryId,
+    ownerId,
+    metrics,
+    artifacts: buildArtifacts(task.resultSummaryId),
+    createdAt,
+    equityCurveRef: `/artifacts/${task.resultSummaryId}/equity.csv`,
+    tradesRef: `/artifacts/${task.resultSummaryId}/trades.csv`,
+  };
+  store.set(task.resultSummaryId, summary);
+  return summary;
+}
+
 function lockJob(
   state: InMemoryJobState,
   status: JobStatus,
@@ -446,7 +647,14 @@ function refreshSummary(state: InMemoryJobState) {
       return mode === "min" ? aScore - bScore : bScore - aScore;
     })
     .slice(0, TOP_N_LIMIT)
-    .map((task) => ({ taskId: task.id, score: task.score as number }));
+    .map((task) => {
+      ensureResultSummary(task, job.ownerId);
+      return {
+        taskId: task.id,
+        score: task.score as number,
+        resultSummaryId: task.resultSummaryId,
+      };
+    });
   job.summary = {
     total: job.totalTasks,
     finished,
@@ -500,6 +708,7 @@ export function debugListTasks(jobId: string): OptimizationTask[] {
 export function debugResetJobs() {
   const store = getStore();
   store.jobs.clear();
+  getResultStore().clear();
 }
 
 // ==== Utilities ====
@@ -516,4 +725,12 @@ function generateId(prefix: string): string {
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function buildArtifacts(summaryId: string) {
+  return [
+    { type: "metrics", url: `/artifacts/${summaryId}/metrics.json` },
+    { type: "equity", url: `/artifacts/${summaryId}/equity.csv` },
+    { type: "trades", url: `/artifacts/${summaryId}/trades.csv` },
+  ];
 }

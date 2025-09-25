@@ -1,10 +1,13 @@
 "use client";
 
 import React from "react";
+import { useRouter } from "next/navigation";
 import type { OptimizationStatus } from "@shared/index";
 import {
   fetchOptimizationStatus,
   cancelOptimization,
+  rerunOptimization,
+  exportOptimizationBundle,
 } from "../../../../services/optimizations";
 import { mapErrorToMessage } from "../../../../utils/errorMapping";
 
@@ -19,12 +22,17 @@ export default function OptimizationDetailPage({ params }: PageProps) {
 }
 
 function OptimizationStatusView({ jobId }: { jobId: string }) {
+  const router = useRouter();
   const [status, setStatus] = React.useState<OptimizationStatus | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [lastUpdated, setLastUpdated] = React.useState<Date | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [canceling, setCanceling] = React.useState(false);
+  const [exporting, setExporting] = React.useState(false);
+  const [exportError, setExportError] = React.useState<string | null>(null);
+  const [rerunError, setRerunError] = React.useState<string | null>(null);
+  const [rerunLoadingId, setRerunLoadingId] = React.useState<string | null>(null);
 
   const loadStatus = React.useCallback(async () => {
     try {
@@ -59,7 +67,10 @@ function OptimizationStatusView({ jobId }: { jobId: string }) {
     status?.diagnostics.throttled || (status?.summary?.throttled ?? 0) > 0,
   );
   const topN = status?.summary?.topN ?? [];
-  const topNSortingNote = describeTopNSorting(topN);
+  const topNSortingNote = describeTopNSorting(topN, status?.earlyStopPolicy?.mode);
+  const total = status?.summary?.total ?? 0;
+  const finished = status?.summary?.finished ?? 0;
+  const progressPercent = total > 0 ? Math.min(100, Math.round((finished / total) * 100)) : 0;
   const isFinal = React.useMemo(() => {
     if (!status) return false;
     if (status.diagnostics?.final) return true;
@@ -67,6 +78,8 @@ function OptimizationStatusView({ jobId }: { jobId: string }) {
       status.status,
     );
   }, [status]);
+  const stopReasonMessage = React.useMemo(() => formatStopReason(status), [status]);
+  const rerunBusy = rerunLoadingId !== null;
 
   const handleCancel = React.useCallback(async () => {
     if (canceling || isFinal) {
@@ -86,6 +99,53 @@ function OptimizationStatusView({ jobId }: { jobId: string }) {
       setCanceling(false);
     }
   }, [canceling, isFinal, jobId]);
+
+  const handleExport = React.useCallback(async () => {
+    if (exporting) return;
+    setExportError(null);
+    try {
+      setExporting(true);
+      const bundle = await exportOptimizationBundle(jobId);
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], {
+        type: "application/json",
+      });
+      const filename = `${jobId}-topn.json`;
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(link.href);
+      setNotice(`已导出 Top-N 聚合包 (${filename})`);
+    } catch (err) {
+      setExportError(mapErrorToMessage(err));
+    } finally {
+      setExporting(false);
+    }
+  }, [exporting, jobId]);
+
+  const handleRerun = React.useCallback(
+    async (sourceTaskId?: string) => {
+      if (rerunBusy) return;
+      setRerunError(null);
+      const loadingKey = sourceTaskId ? `task:${sourceTaskId}` : "__global__";
+      setRerunLoadingId(loadingKey);
+      try {
+        const response = await rerunOptimization(jobId);
+        const message = sourceTaskId
+          ? `已根据 Top-N 任务 ${sourceTaskId} 创建复运行作业 ${response.id}`
+          : `已创建复运行作业 ${response.id}`;
+        setNotice(message);
+        router.push(`/optimizations/${response.id}`);
+      } catch (err) {
+        setRerunError(mapErrorToMessage(err));
+      } finally {
+        setRerunLoadingId(null);
+      }
+    },
+    [jobId, rerunBusy, router],
+  );
 
   return (
     <main className="p-4 space-y-6" data-testid="optimizations-detail">
@@ -108,7 +168,7 @@ function OptimizationStatusView({ jobId }: { jobId: string }) {
         className="flex flex-wrap items-center gap-3"
         data-testid="optimizations-actions"
       >
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
             onClick={() => {
@@ -129,25 +189,93 @@ function OptimizationStatusView({ jobId }: { jobId: string }) {
           >
             {canceling ? "取消中..." : "取消作业"}
           </button>
+          <button
+            type="button"
+            data-testid="optimizations-rerun"
+            onClick={() => handleRerun()}
+            className="px-3 py-1 border border-blue-500 text-blue-600 rounded hover:bg-blue-50 disabled:opacity-50"
+            disabled={rerunBusy}
+          >
+            {rerunLoadingId === "__global__" ? "复运行中..." : "复运行作业"}
+          </button>
+          <button
+            type="button"
+            data-testid="optimizations-export"
+            onClick={handleExport}
+            className="px-3 py-1 border border-emerald-500 text-emerald-600 rounded hover:bg-emerald-50 disabled:opacity-50"
+            disabled={exporting || !status}
+          >
+            {exporting ? "导出中..." : "导出 Top-N"}
+          </button>
         </div>
-        {notice && (
-          <span
-            data-testid="optimizations-detail-notice"
-            className="text-sm text-emerald-600"
-          >
-            {notice}
-          </span>
-        )}
-        {error && (
-          <span
-            role="alert"
-            data-testid="optimizations-detail-error"
-            className="text-sm text-red-600"
-          >
-            {error}
-          </span>
-        )}
+        <div className="flex flex-col gap-1 text-sm">
+          {notice && (
+            <span
+              data-testid="optimizations-detail-notice"
+              className="text-emerald-600"
+            >
+              {notice}
+            </span>
+          )}
+          {error && (
+            <span
+              role="alert"
+              data-testid="optimizations-detail-error"
+              className="text-red-600"
+            >
+              {error}
+            </span>
+          )}
+          {exportError && (
+            <span className="text-red-600" data-testid="optimizations-export-error">
+              {exportError}
+            </span>
+          )}
+          {rerunError && (
+            <span className="text-red-600" data-testid="optimizations-rerun-error">
+              {rerunError}
+            </span>
+          )}
+        </div>
       </section>
+
+      {status && (
+        <section
+          className="w-full border rounded px-4 py-3 bg-white shadow-sm dark:bg-slate-900/60"
+          data-testid="optimizations-progress"
+        >
+          <div className="flex items-center justify-between text-sm font-medium">
+            <span>总进度</span>
+            <span>
+              {finished}/{total}（{progressPercent}%）
+            </span>
+          </div>
+          <div className="mt-2 h-2 rounded bg-gray-200 dark:bg-slate-800 overflow-hidden">
+            <div
+              className="h-full bg-emerald-500 transition-all"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+          <p className="mt-2 text-xs text-gray-500 dark:text-slate-300">
+            当前状态：{translateStatus(status.status)}
+            {status.diagnostics?.queueDepth !== undefined && (
+              <span className="ml-2">排队：{status.diagnostics.queueDepth}</span>
+            )}
+          </p>
+        </section>
+      )}
+
+      {stopReasonMessage && (
+        <section
+          data-testid="optimizations-stop-reason"
+          className="border border-blue-200 bg-blue-50 dark:border-blue-500/40 dark:bg-blue-500/10 px-4 py-3 rounded"
+        >
+          <h2 className="font-semibold text-blue-700 dark:text-blue-200">
+            作业已结束
+          </h2>
+          <p className="text-sm text-blue-700 dark:text-blue-100">{stopReasonMessage}</p>
+        </section>
+      )}
 
       {status && (
         <section
@@ -192,13 +320,14 @@ function OptimizationStatusView({ jobId }: { jobId: string }) {
                 <th className="px-3 py-2 font-medium">排名</th>
                 <th className="px-3 py-2 font-medium">任务 ID</th>
                 <th className="px-3 py-2 font-medium">得分</th>
+                <th className="px-3 py-2 font-medium">操作</th>
               </tr>
             </thead>
             <tbody>
               {topN.length === 0 && (
                 <tr>
                   <td
-                    colSpan={3}
+                    colSpan={4}
                     className="px-3 py-6 text-center text-gray-500"
                   >
                     暂无完成的子任务结果
@@ -211,8 +340,26 @@ function OptimizationStatusView({ jobId }: { jobId: string }) {
                   className="border-t border-gray-100 dark:border-slate-800"
                 >
                   <td className="px-3 py-2 font-medium">#{index + 1}</td>
-                  <td className="px-3 py-2 font-mono text-sm">{entry.taskId}</td>
+                  <td className="px-3 py-2">
+                    <div className="font-mono text-sm">{entry.taskId}</div>
+                    {entry.resultSummaryId && (
+                      <div className="text-xs text-gray-500 dark:text-slate-400">
+                        摘要：{entry.resultSummaryId}
+                      </div>
+                    )}
+                  </td>
                   <td className="px-3 py-2">{formatScore(entry.score)}</td>
+                  <td className="px-3 py-2">
+                    <button
+                      type="button"
+                      className="text-blue-600 hover:underline disabled:opacity-50"
+                      onClick={() => handleRerun(entry.taskId)}
+                      data-testid={`optimizations-topn-rerun-${entry.taskId}`}
+                      disabled={rerunLoadingId === `task:${entry.taskId}`}
+                    >
+                      {rerunLoadingId === `task:${entry.taskId}` ? "复运行中..." : "复运行"}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -257,7 +404,55 @@ function translateStatus(status: string): string {
   return mapping[status] ?? status;
 }
 
-export function describeTopNSorting(topN: OptimizationStatus["summary"]["topN"]): string {
+function formatStopReason(status: OptimizationStatus | null): string | null {
+  if (!status) return null;
+  const reason = status.diagnostics?.stopReason as Record<string, unknown> | undefined;
+  if (!reason) {
+    if (status.status === "early-stopped") {
+      return "作业已提前停止，Top-N 结果保持终值。";
+    }
+    if (status.status === "canceled") {
+      return "作业已取消，当前聚合结果已锁定。";
+    }
+    if (status.status === "succeeded") {
+      return "作业已完成，可导出结果或发起复运行。";
+    }
+    if (status.status === "failed") {
+      return "作业执行失败，请查看指标或重新发起复运行。";
+    }
+    return null;
+  }
+  const kindRaw = reason["kind"];
+  const kind = typeof kindRaw === "string" ? kindRaw : "";
+  if (kind === "EARLY_STOP_THRESHOLD") {
+    const metric = typeof reason["metric"] === "string" ? (reason["metric"] as string) : "指标";
+    const threshold = typeof reason["threshold"] === "number" ? (reason["threshold"] as number) : undefined;
+    const score = typeof reason["score"] === "number" ? (reason["score"] as number) : undefined;
+    const mode = typeof reason["mode"] === "string" && (reason["mode"] as string).toLowerCase() === "min" ? "≤" : "≥";
+    const thresholdText = threshold !== undefined ? threshold.toFixed(4) : "阈值";
+    const scoreText = score !== undefined ? score.toFixed(4) : "--";
+    return `命中早停阈值：${metric} ${mode} ${thresholdText}（最佳 ${scoreText}）`;
+  }
+  if (kind === "CANCELED") {
+    const cancelReason = reason["reason"];
+    const reasonText = typeof cancelReason === "string" && cancelReason.trim()
+      ? `：${cancelReason}`
+      : "";
+    return `作业已取消${reasonText}`;
+  }
+  return `作业已结束（${translateStatus(status.status)}）`;
+}
+
+export function describeTopNSorting(
+  topN: OptimizationStatus["summary"]["topN"],
+  mode?: "min" | "max",
+): string {
+  if (mode === "min") {
+    return "根据得分升序展示（数值越小越优）";
+  }
+  if (mode === "max") {
+    return "根据得分降序展示（数值越大越优）";
+  }
   if (!Array.isArray(topN) || topN.length < 2) {
     return "根据得分排序展示，实时刷新";
   }
