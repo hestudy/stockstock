@@ -16,6 +16,7 @@ from .observability import (
 from .orchestrator import (
     JobAccessError,
     ParamInvalidError,
+    cancel_job,
     create_optimization_job,
     debug_jobs,
     get_job_status,
@@ -109,6 +110,10 @@ class EarlyStopPolicyModel(BaseModel):
     mode: Literal["min", "max"]
 
 
+class CancelReq(BaseModel):
+    reason: Optional[str] = None
+
+
 class OptimizationCreateReq(BaseModel):
     ownerId: str = Field(..., min_length=1)
     versionId: str = Field(..., min_length=1)
@@ -186,6 +191,28 @@ async def optimization_status(
         )
     try:
         payload = get_job_status(job_id, owner_header)
+        return payload
+    except JobAccessError as exc:
+        raise HTTPException(
+            status_code=exc.status,
+            detail={"code": exc.code, "message": str(exc), "details": exc.details},
+        ) from exc
+
+
+@app.post("/internal/optimizations/{job_id}/cancel")
+async def optimization_cancel(
+    job_id: str,
+    req: CancelReq,
+    _secret: None = Depends(require_internal_secret),
+    owner_header: Optional[str] = Header(None, alias="x-owner-id"),
+):
+    if not owner_header:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "E.PARAM_INVALID", "message": "x-owner-id header required"},
+        )
+    try:
+        payload = cancel_job(job_id, owner_header, reason=req.reason)
         return payload
     except JobAccessError as exc:
         raise HTTPException(

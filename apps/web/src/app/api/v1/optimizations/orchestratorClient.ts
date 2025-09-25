@@ -1,9 +1,11 @@
 import type {
+  JobStatus,
   OptimizationJob,
   OptimizationStatus,
   OptimizationSubmitResponse,
   OptimizationSummary,
   OptimizationTask,
+  OptimizationStopReason,
 } from "@shared/index";
 import type { NormalizedParamSpace, ParamSpace } from "./paramSpace";
 
@@ -21,6 +23,9 @@ const TOP_N_LIMIT = 5;
 type InMemoryJobState = {
   job: OptimizationJob;
   tasks: OptimizationTask[];
+  lockedStatus?: JobStatus;
+  stopReason?: OptimizationStopReason;
+  summarySnapshot?: OptimizationSummary;
 };
 
 type InMemoryStore = {
@@ -65,6 +70,18 @@ export async function getOptimizationStatus(
     return fetchRemoteStatus(target, ownerId, jobId);
   }
   return getInMemoryStatus(ownerId, jobId);
+}
+
+export async function cancelOptimizationJob(
+  ownerId: string,
+  jobId: string,
+  options: { reason?: string } = {},
+): Promise<OptimizationStatus> {
+  const target = process.env.OPTIMIZATION_ORCHESTRATOR_URL?.trim();
+  if (target) {
+    return cancelRemote(target, ownerId, jobId, options);
+  }
+  return cancelInMemory(ownerId, jobId, options);
 }
 
 // ==== Remote orchestrator helpers ====
@@ -150,6 +167,34 @@ async function fetchRemoteStatus(
   return (await res.json()) as OptimizationStatus;
 }
 
+async function cancelRemote(
+  baseUrl: string,
+  ownerId: string,
+  jobId: string,
+  options: { reason?: string },
+): Promise<OptimizationStatus> {
+  const url = new URL(`/internal/optimizations/${jobId}/cancel`, baseUrl).toString();
+  const sharedSecret = process.env.OPTIMIZATION_ORCHESTRATOR_SECRET?.trim();
+  const headers: Record<string, string> = {
+    [OWNER_HEADER]: ownerId,
+    [REQUEST_ID_HEADER]: generateId(REQUEST_ID_PREFIX),
+    "content-type": "application/json",
+  };
+  if (sharedSecret) {
+    headers[SHARED_SECRET_HEADER] = sharedSecret;
+  }
+  const payload = options.reason ? { reason: options.reason } : {};
+  const res = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw await buildRemoteError(res);
+  }
+  return (await res.json()) as OptimizationStatus;
+}
+
 async function buildRemoteError(res: Response) {
   let payload: unknown;
   try {
@@ -223,18 +268,53 @@ function getInMemoryStatus(ownerId: string, jobId: string): OptimizationStatus {
   }
   refreshSummary(state);
   const summary = state.job.summary!;
+  const diagnostics: OptimizationStatus["diagnostics"] = {
+    throttled: summary.throttled > 0,
+    queueDepth: summary.throttled,
+    running: summary.running,
+  };
+  if (state.lockedStatus) {
+    diagnostics.final = true;
+  }
+  if (state.stopReason) {
+    diagnostics.stopReason = state.stopReason;
+  }
   return {
     id: state.job.id,
     status: state.job.status,
     totalTasks: state.job.totalTasks,
     concurrencyLimit: state.job.concurrencyLimit,
     summary,
-    diagnostics: {
-      throttled: summary.throttled > 0,
-      queueDepth: summary.throttled,
-      running: summary.running,
-    },
+    diagnostics,
   };
+}
+
+function cancelInMemory(
+  ownerId: string,
+  jobId: string,
+  options: { reason?: string },
+): OptimizationStatus {
+  const store = getStore();
+  const state = store.jobs.get(jobId);
+  if (!state) {
+    const err = new Error("optimization job not found");
+    (err as any).code = "E.NOT_FOUND";
+    (err as any).status = 404;
+    throw err;
+  }
+  if (state.job.ownerId !== ownerId) {
+    const err = new Error("job does not belong to current owner");
+    (err as any).code = "E.FORBIDDEN";
+    (err as any).status = 403;
+    throw err;
+  }
+  refreshSummary(state);
+  const reason: OptimizationStopReason = { kind: "CANCELED" };
+  if (options.reason) {
+    (reason as any).reason = options.reason;
+  }
+  lockJob(state, "canceled", reason);
+  return getInMemoryStatus(ownerId, jobId);
 }
 
 function buildInMemoryTasks(
@@ -299,8 +379,52 @@ function initializeSummary(total: number, tasks: OptimizationTask[]): Optimizati
   };
 }
 
+function cloneSummary(summary: OptimizationSummary): OptimizationSummary {
+  return {
+    total: summary.total,
+    finished: summary.finished,
+    running: summary.running,
+    throttled: summary.throttled,
+    topN: summary.topN.map((entry) => ({ ...entry })),
+  };
+}
+
+function lockJob(
+  state: InMemoryJobState,
+  status: JobStatus,
+  reason?: OptimizationStopReason,
+) {
+  if (state.lockedStatus) {
+    if (reason && !state.stopReason) {
+      state.stopReason = reason;
+    }
+    return;
+  }
+  state.lockedStatus = status;
+  if (reason) {
+    state.stopReason = reason;
+  }
+  if (state.job.summary) {
+    state.summarySnapshot = cloneSummary(state.job.summary);
+  }
+  state.job.status = status;
+  state.job.updatedAt = new Date().toISOString();
+  for (const task of state.tasks) {
+    if (task.status === "succeeded" || task.status === "failed") continue;
+    task.status = status;
+    task.throttled = false;
+    task.updatedAt = state.job.updatedAt;
+  }
+}
+
 function refreshSummary(state: InMemoryJobState) {
   const { tasks, job } = state;
+  if (state.lockedStatus && state.summarySnapshot) {
+    job.summary = cloneSummary(state.summarySnapshot);
+    job.status = state.lockedStatus;
+    job.updatedAt = new Date().toISOString();
+    return;
+  }
   const finished = tasks.filter((task) =>
     task.status === "succeeded" ||
     task.status === "failed" ||
@@ -331,6 +455,26 @@ function refreshSummary(state: InMemoryJobState) {
     topN: topCandidates,
   };
   job.updatedAt = new Date().toISOString();
+  const policy = job.earlyStopPolicy;
+  if (!state.lockedStatus && policy) {
+    const mode = policy.mode?.toLowerCase() === "min" ? "min" : "max";
+    const scores = topCandidates.map((entry) => entry.score).filter((value) => typeof value === "number") as number[];
+    if (scores.length > 0) {
+      const bestScore = mode === "min" ? Math.min(...scores) : Math.max(...scores);
+      const threshold = policy.threshold;
+      const shouldStop = mode === "min" ? bestScore <= threshold : bestScore >= threshold;
+      if (shouldStop) {
+        lockJob(state, "early-stopped", {
+          kind: "EARLY_STOP_THRESHOLD",
+          metric: policy.metric,
+          threshold,
+          score: bestScore,
+          mode,
+        });
+        return;
+      }
+    }
+  }
   const hasFailed = tasks.some((task) => task.status === "failed");
   if (finished >= job.totalTasks) {
     job.status = hasFailed ? "failed" : "succeeded";

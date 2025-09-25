@@ -23,6 +23,11 @@ export type OptimizationSubmitResponse = {
 
 export type OptimizationTopNEntry = { taskId: string; score: number };
 
+export type OptimizationStopReason = {
+  kind: string;
+  [key: string]: unknown;
+};
+
 export type OptimizationSummary = {
   total: number;
   finished: number;
@@ -35,6 +40,8 @@ export type OptimizationDiagnostics = {
   throttled: boolean;
   queueDepth: number;
   running: number;
+  final?: boolean;
+  stopReason?: OptimizationStopReason;
 };
 
 export type OptimizationStatus = {

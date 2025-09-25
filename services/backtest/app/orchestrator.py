@@ -125,6 +125,8 @@ class OptimizationJob:
     summary: OptimizationSummary = field(default_factory=lambda: OptimizationSummary(0, 0, 0, 0))
     created_at: str = field(default_factory=iso_now)
     updated_at: str = field(default_factory=iso_now)
+    locked_status: Optional[JobStatus] = None
+    stop_reason: Optional[Dict[str, Any]] = None
 
 
 _JOBS: Dict[str, OptimizationJob] = {}
@@ -420,6 +422,8 @@ def dequeue_next(owner_id: str, job_id: Optional[str] = None) -> Optional[Dict[s
             job = _JOBS.get(jid)
             if not job or job.owner_id != owner_id:
                 continue
+            if job.locked_status:
+                continue
             _activate_slots(job)
             running = _count_status(job.id, "running")
             if running >= job.concurrency_limit:
@@ -439,11 +443,21 @@ def dequeue_next(owner_id: str, job_id: Optional[str] = None) -> Optional[Dict[s
     return None
 
 
-def mark_task_succeeded(job_id: str, task_id: str, score: Optional[float] = None) -> Dict[str, Any]:
+def mark_task_succeeded(
+    job_id: str,
+    task_id: str,
+    *,
+    score: Optional[float] = None,
+    result_summary_id: Optional[str] = None,
+) -> Dict[str, Any]:
     with _STORE_LOCK:
         job, task = _get_job_and_task(job_id, task_id)
+        if job.locked_status:
+            return _task_to_dict(task)
         task.status = "succeeded"
-        task.score = score
+        if score is not None:
+            task.score = float(score)
+        task.result_summary_id = result_summary_id
         task.throttled = False
         task.progress = 1.0
         task.updated_at = iso_now()
@@ -454,6 +468,7 @@ def mark_task_succeeded(job_id: str, task_id: str, score: Optional[float] = None
             _PERSISTENCE.update_task(task)
         _activate_slots(job)
         _refresh_summary(job)
+        _maybe_trigger_early_stop(job)
         return _task_to_dict(task)
 
 
@@ -466,6 +481,8 @@ def mark_task_failed(
 ) -> Dict[str, Any]:
     with _STORE_LOCK:
         job, task = _get_job_and_task(job_id, task_id)
+        if job.locked_status:
+            return _task_to_dict(task)
         now = datetime.utcnow()
         task.updated_at = iso_now()
         task.last_error = {"code": error_type, "message": message}
@@ -504,25 +521,26 @@ def get_job_status(job_id: str, owner_id: str) -> Dict[str, Any]:
                 {"jobId": job_id, "ownerId": owner_id},
             )
         _refresh_summary(job)
-        summary = job.summary
-        return {
-            "id": job.id,
-            "status": job.status,
-            "totalTasks": job.total_tasks,
-            "concurrencyLimit": job.concurrency_limit,
-            "summary": {
-                "total": summary.total,
-                "finished": summary.finished,
-                "running": summary.running,
-                "throttled": summary.throttled,
-                "topN": summary.top_n,
-            },
-            "diagnostics": {
-                "throttled": summary.throttled > 0,
-                "queueDepth": summary.throttled,
-                "running": summary.running,
-            },
-        }
+        return _job_payload(job)
+
+
+def cancel_job(job_id: str, owner_id: str, *, reason: Optional[str] = None) -> Dict[str, Any]:
+    with _STORE_LOCK:
+        job = _JOBS.get(job_id)
+        if not job:
+            raise JobAccessError("optimization job not found", "E.NOT_FOUND", 404, {"jobId": job_id})
+        if job.owner_id != owner_id:
+            raise JobAccessError(
+                "job does not belong to current owner",
+                "E.FORBIDDEN",
+                403,
+                {"jobId": job_id, "ownerId": owner_id},
+            )
+        reason_payload: Dict[str, Any] = {"kind": "CANCELED"}
+        if reason:
+            reason_payload["reason"] = reason
+        _lock_job(job, "canceled", reason=reason_payload)
+        return _job_payload(job)
 
 
 # ==== Internal helpers ====
@@ -593,7 +611,9 @@ def _refresh_summary(job: OptimizationJob, *, persist: bool = True) -> None:
         top_n=top_n,
     )
     new_status = job.status
-    if finished >= job.total_tasks:
+    if job.locked_status:
+        new_status = job.locked_status
+    elif finished >= job.total_tasks:
         new_status = "succeeded"
         if any(task.status == "failed" for task in tasks):
             new_status = "failed"
@@ -684,6 +704,90 @@ def _policy_to_dict(policy: Optional[EarlyStopPolicy]) -> Optional[Dict[str, Any
         "metric": policy.metric,
         "threshold": policy.threshold,
         "mode": policy.mode,
+    }
+
+
+def _maybe_trigger_early_stop(job: OptimizationJob) -> None:
+    if job.locked_status or not job.early_stop_policy:
+        return
+    summary = job.summary
+    top_entries = summary.top_n or []
+    if not top_entries:
+        return
+    scores = [entry.get("score") for entry in top_entries if isinstance(entry.get("score"), (int, float))]
+    if not scores:
+        return
+    policy = job.early_stop_policy
+    mode = (policy.mode or "max").lower()
+    best_score = min(scores) if mode == "min" else max(scores)
+    threshold = policy.threshold
+    should_stop = (mode == "min" and best_score <= threshold) or (mode != "min" and best_score >= threshold)
+    if not should_stop:
+        return
+    reason = {
+        "kind": "EARLY_STOP_THRESHOLD",
+        "metric": policy.metric,
+        "threshold": threshold,
+        "score": best_score,
+        "mode": mode,
+    }
+    _lock_job(job, "early-stopped", reason=reason)
+
+
+def _lock_job(
+    job: OptimizationJob,
+    status: JobStatus,
+    *,
+    reason: Optional[Dict[str, Any]] = None,
+) -> None:
+    if job.locked_status == status:
+        return
+    job.locked_status = status
+    job.stop_reason = reason
+    job.status = status
+    job.updated_at = iso_now()
+    tasks = _TASKS.get(job.id, {})
+    now = datetime.utcnow()
+    for task in tasks.values():
+        if task.status not in FINISHED_STATUSES:
+            task.status = status
+            task.progress = 1.0
+            task.throttled = False
+            task.next_run_at = now
+            task.updated_at = iso_now()
+            task.error = None
+            task.last_error = None
+            if _PERSISTENCE.enabled:
+                _PERSISTENCE.update_task(task)
+    _refresh_summary(job)
+    if _PERSISTENCE.enabled:
+        _PERSISTENCE.update_job(job)
+
+
+def _job_payload(job: OptimizationJob) -> Dict[str, Any]:
+    summary = job.summary
+    diagnostics: Dict[str, Any] = {
+        "throttled": summary.throttled > 0,
+        "queueDepth": summary.throttled,
+        "running": summary.running,
+    }
+    if job.stop_reason:
+        diagnostics["stopReason"] = job.stop_reason
+    if job.locked_status:
+        diagnostics["final"] = True
+    return {
+        "id": job.id,
+        "status": job.status,
+        "totalTasks": job.total_tasks,
+        "concurrencyLimit": job.concurrency_limit,
+        "summary": {
+            "total": summary.total,
+            "finished": summary.finished,
+            "running": summary.running,
+            "throttled": summary.throttled,
+            "topN": [dict(entry) for entry in summary.top_n],
+        },
+        "diagnostics": diagnostics,
     }
 
 

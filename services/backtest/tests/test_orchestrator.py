@@ -7,6 +7,7 @@ import pytest
 from services.backtest.app.orchestrator import (
     JobAccessError,
     ParamInvalidError,
+    cancel_job,
     configure_persistence,
     create_optimization_job,
     debug_jobs,
@@ -87,6 +88,26 @@ def test_create_job_initializes_summary_and_tasks(monkeypatch):
     throttled = [task for task in tasks if task.throttled]
     assert len(throttled) == 4
     assert any(name == "throttled_requests" and value == 4 for name, value, _ in captured_metrics)
+
+
+def test_mark_task_succeeded_records_result_summary():
+    result = create_optimization_job(
+        owner_id="owner-1",
+        version_id="v-1",
+        param_space={"x": [1]},
+        concurrency_limit=1,
+    )
+    job_id = result["id"]
+    task = dequeue_next("owner-1", job_id)
+    payload = mark_task_succeeded(
+        job_id,
+        task["id"],
+        score=0.75,
+        result_summary_id="summary-123",
+    )
+    assert payload["resultSummaryId"] == "summary-123"
+    stored = debug_tasks(job_id)[0]
+    assert stored.result_summary_id == "summary-123"
 
 
 def test_create_job_respects_param_limit():
@@ -219,7 +240,7 @@ def test_top_n_respects_min_mode():
         version_id="v-1",
         param_space={"x": [1, 2, 3]},
         concurrency_limit=2,
-        early_stop_policy={"metric": "loss", "threshold": 0.2, "mode": "min"},
+        early_stop_policy={"metric": "loss", "threshold": 0.1, "mode": "min"},
     )
     job_id = result["id"]
     first = dequeue_next("owner-1", job_id)
@@ -231,6 +252,31 @@ def test_top_n_respects_min_mode():
     status = get_job_status(job_id, "owner-1")
     top_scores = [entry["score"] for entry in status["summary"]["topN"]]
     assert top_scores == [0.18, 0.36, 0.42]
+
+
+def test_early_stop_triggers_job_lock():
+    result = create_optimization_job(
+        owner_id="owner-1",
+        version_id="v-1",
+        param_space={"x": [1, 2, 3]},
+        concurrency_limit=1,
+        early_stop_policy={"metric": "sharpe", "threshold": 1.0, "mode": "max"},
+    )
+    job_id = result["id"]
+    first = dequeue_next("owner-1", job_id)
+    mark_task_succeeded(job_id, first["id"], score=1.05)
+
+    status = get_job_status(job_id, "owner-1")
+    assert status["status"] == "early-stopped"
+    assert status["diagnostics"].get("final") is True
+    reason = status["diagnostics"].get("stopReason")
+    assert reason and reason.get("kind") == "EARLY_STOP_THRESHOLD"
+    assert reason.get("threshold") == 1.0
+
+    # Ensure no additional tasks dispatched after early stop
+    assert dequeue_next("owner-1", job_id) is None
+    stored_tasks = debug_tasks(job_id)
+    assert all(task.status in {"succeeded", "early-stopped"} for task in stored_tasks)
 
 
 def test_get_job_status_enforces_owner():
@@ -308,3 +354,26 @@ def test_sqlite_persistence_round_trip(tmp_path):
     finally:
         debug_reset_persistent()
         configure_persistence(None)
+
+
+def test_cancel_job_updates_tasks_and_summary():
+    result = create_optimization_job(
+        owner_id="owner-1",
+        version_id="v-1",
+        param_space={"x": [1, 2]},
+        concurrency_limit=1,
+    )
+    job_id = result["id"]
+    task = dequeue_next("owner-1", job_id)
+    assert task is not None
+    payload = cancel_job(job_id, "owner-1", reason="user-request")
+    assert payload["status"] == "canceled"
+    assert payload["diagnostics"].get("final") is True
+    reason = payload["diagnostics"].get("stopReason")
+    assert reason and reason.get("kind") == "CANCELED"
+    assert reason.get("reason") == "user-request"
+
+    # cancel should prevent further dispatch
+    assert dequeue_next("owner-1", job_id) is None
+    statuses = {task.status for task in debug_tasks(job_id)}
+    assert statuses <= {"canceled", "succeeded", "failed"}

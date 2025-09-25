@@ -112,3 +112,32 @@ def test_status_rejects_foreign_owner():
     )
     assert status_resp.status_code == 403
     assert status_resp.json()["detail"]["code"] == "E.FORBIDDEN"
+
+
+def test_cancel_endpoint_marks_job_and_returns_reason():
+    os.environ["OPTIMIZATION_ORCHESTRATOR_SECRET"] = "secret"
+    create = client.post(
+        "/internal/optimizations",
+        json=payload(),
+        headers={"x-opt-shared-secret": "secret", "x-owner-id": "owner-1"},
+    )
+    job_id = create.json()["id"]
+    cancel_resp = client.post(
+        f"/internal/optimizations/{job_id}/cancel",
+        json={"reason": "manual"},
+        headers={"x-opt-shared-secret": "secret", "x-owner-id": "owner-1"},
+    )
+    assert cancel_resp.status_code == 200
+    body = cancel_resp.json()
+    assert body["status"] == "canceled"
+    assert body["diagnostics"]["final"] is True
+    assert body["diagnostics"]["stopReason"]["kind"] == "CANCELED"
+    assert body["diagnostics"]["stopReason"]["reason"] == "manual"
+
+    # ensure unauthorized owner cannot cancel the same job
+    forbidden = client.post(
+        f"/internal/optimizations/{job_id}/cancel",
+        json={},
+        headers={"x-opt-shared-secret": "secret", "x-owner-id": "other"},
+    )
+    assert forbidden.status_code == 403

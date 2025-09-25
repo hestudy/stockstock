@@ -14,3 +14,11 @@ export async function submitOptimization(
 export function fetchOptimizationStatus(id: string): Promise<OptimizationStatus> {
   return api.get<OptimizationStatus>(`/optimizations/${id}/status`);
 }
+
+export function cancelOptimization(
+  id: string,
+  reason?: string,
+): Promise<OptimizationStatus> {
+  const payload = reason ? { reason } : {};
+  return api.post<OptimizationStatus>(`/optimizations/${id}/cancel`, payload);
+}

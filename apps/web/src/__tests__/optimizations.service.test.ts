@@ -1,7 +1,11 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { submitOptimization } from "../services/optimizations";
-import type { OptimizationSubmitRequest, OptimizationSubmitResponse } from "@shared/index";
+import { submitOptimization, cancelOptimization } from "../services/optimizations";
+import type {
+  OptimizationStatus,
+  OptimizationSubmitRequest,
+  OptimizationSubmitResponse,
+} from "@shared/index";
 
 const g: any = globalThis as any;
 
@@ -47,5 +51,50 @@ describe("services/optimizations.submitOptimization", () => {
     await expect(
       submitOptimization({ versionId: "v-opt", paramSpace: { only: [1] } }),
     ).rejects.toThrow(/authentication required|HTTP 401/i);
+  });
+});
+
+describe("services/optimizations.cancelOptimization", () => {
+  beforeEach(() => {
+    g.fetch = vi.fn();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("发送取消请求并返回最新状态", async () => {
+    const payload: OptimizationStatus = {
+      id: "opt-1",
+      status: "canceled",
+      totalTasks: 4,
+      concurrencyLimit: 2,
+      summary: {
+        total: 4,
+        finished: 2,
+        running: 0,
+        throttled: 0,
+        topN: [],
+      },
+      diagnostics: { throttled: false, queueDepth: 0, running: 0, final: true },
+    };
+    (g.fetch as any).mockResolvedValue({ ok: true, json: () => Promise.resolve(payload) });
+
+    const res = await cancelOptimization("opt-1", "manual");
+    expect(res).toEqual(payload);
+    expect(g.fetch).toHaveBeenCalledTimes(1);
+    const [url, init] = (g.fetch as any).mock.calls[0];
+    expect(url).toContain("/optimizations/opt-1/cancel");
+    expect(JSON.parse(init.body)).toEqual({ reason: "manual" });
+  });
+
+  it("当取消失败时抛出异常", async () => {
+    (g.fetch as any).mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: () => Promise.resolve({ error: { code: "E.NOT_FOUND", message: "missing" } }),
+    });
+
+    await expect(cancelOptimization("opt-missing")).rejects.toThrow(/missing|404/i);
   });
 });
