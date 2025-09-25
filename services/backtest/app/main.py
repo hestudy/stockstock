@@ -22,6 +22,7 @@ from .orchestrator import (
     get_job_status,
     get_job_snapshot,
     export_top_n_bundle,
+    list_jobs,
 )
 
 logger = structlog.get_logger()
@@ -180,6 +181,22 @@ async def optimizations(
             status_code=500,
             detail={"code": "E.INTERNAL", "message": "failed to create optimization job"},
         ) from exc
+
+
+@app.get("/internal/optimizations")
+async def optimizations_history(
+    limit: int = 50,
+    _secret: None = Depends(require_internal_secret),
+    owner_header: Optional[str] = Header(None, alias="x-owner-id"),
+):
+    if not owner_header:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "E.PARAM_INVALID", "message": "x-owner-id header required"},
+        )
+    safe_limit = max(1, min(limit, 200))
+    jobs = list_jobs(owner_header, limit=safe_limit)
+    return jobs
 
 
 @app.get("/internal/optimizations/{job_id}/status")

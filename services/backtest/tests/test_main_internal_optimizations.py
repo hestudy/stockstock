@@ -161,6 +161,34 @@ def test_snapshot_endpoint_returns_source_job_id():
     assert body["sourceJobId"] == "origin-1"
 
 
+def test_history_endpoint_returns_sorted_jobs():
+    os.environ["OPTIMIZATION_ORCHESTRATOR_SECRET"] = "secret"
+    first = client.post(
+        "/internal/optimizations",
+        json=payload(),
+        headers={"x-opt-shared-secret": "secret", "x-owner-id": "owner-1"},
+    ).json()
+    second = client.post(
+        "/internal/optimizations",
+        json=payload(sourceJobId="origin-2"),
+        headers={"x-opt-shared-secret": "secret", "x-owner-id": "owner-1"},
+    ).json()
+    tasks = orchestrator.debug_tasks(second["id"])
+    orchestrator.mark_task_succeeded(second["id"], tasks[0].id, score=1.1)
+
+    resp = client.get(
+        "/internal/optimizations?limit=1",
+        headers={"x-opt-shared-secret": "secret", "x-owner-id": "owner-1"},
+    )
+    assert resp.status_code == 200
+    jobs = resp.json()
+    assert len(jobs) == 1
+    newest = jobs[0]
+    assert newest["id"] == second["id"]
+    assert newest["summary"]["finished"] >= 1
+    assert newest["sourceJobId"] == "origin-2"
+
+
 def test_export_endpoint_returns_topn_bundle():
     os.environ["OPTIMIZATION_ORCHESTRATOR_SECRET"] = "secret"
     create = client.post(

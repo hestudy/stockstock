@@ -560,6 +560,44 @@ def get_job_snapshot(job_id: str, owner_id: str) -> Dict[str, Any]:
         }
 
 
+def list_jobs(owner_id: str, *, limit: int = DEFAULT_LIMIT) -> List[Dict[str, Any]]:
+    """Return optimization jobs for an owner ordered by most recent update."""
+
+    if limit <= 0:
+        limit = 1
+    limit = min(limit, DEFAULT_LIMIT)
+
+    with _STORE_LOCK:
+        candidates = [job for job in _JOBS.values() if job.owner_id == owner_id]
+        for job in candidates:
+            _refresh_summary(job, persist=False)
+
+        candidates.sort(
+            key=lambda job: (job.updated_at or job.created_at or ""),
+            reverse=True,
+        )
+
+        payload: List[Dict[str, Any]] = []
+        for job in candidates[:limit]:
+            payload.append(
+                {
+                    "id": job.id,
+                    "ownerId": job.owner_id,
+                    "versionId": job.version_id,
+                    "paramSpace": job.param_space,
+                    "concurrencyLimit": job.concurrency_limit,
+                    "earlyStopPolicy": _policy_to_dict(job.early_stop_policy),
+                    "status": job.status,
+                    "totalTasks": job.total_tasks,
+                    "summary": _summary_to_dict(job.summary),
+                    "createdAt": job.created_at,
+                    "updatedAt": job.updated_at,
+                    "sourceJobId": job.source_job_id,
+                }
+            )
+        return payload
+
+
 def cancel_job(job_id: str, owner_id: str, *, reason: Optional[str] = None) -> Dict[str, Any]:
     with _STORE_LOCK:
         job = _JOBS.get(job_id)

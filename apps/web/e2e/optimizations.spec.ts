@@ -7,6 +7,16 @@ test.describe("Optimization submit UI", () => {
     ]);
   });
 
+  test.beforeEach(async ({ page }) => {
+    await page.route(/\/api\/v1\/optimizations\/history.*/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([]),
+      });
+    });
+  });
+
   test("submits optimization successfully", async ({ page }) => {
     await page.route("**/api/v1/optimizations", async (route) => {
       const body = route.request().postDataJSON() as Record<string, any>;

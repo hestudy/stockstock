@@ -310,6 +310,33 @@ test.describe("Optimizations Detail — Export & Rerun", () => {
     await page.getByTestId("optimizations-rerun").click();
     await page.waitForURL(new RegExp(`/optimizations/${NEW_JOB_ID}$`));
     await expect(page.getByTestId("optimizations-job-id")).toContainText(NEW_JOB_ID);
+
+    await page.route(/\/api\/v1\/optimizations\/history.*/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            id: NEW_JOB_ID,
+            ownerId: "owner-1",
+            versionId: "v-history",
+            paramSpace: { sample: true },
+            concurrencyLimit: 2,
+            earlyStopPolicy: null,
+            status: "queued",
+            totalTasks: RERUN_STATUS_PAYLOAD.totalTasks,
+            summary: RERUN_STATUS_PAYLOAD.summary,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            sourceJobId: JOB_ID,
+          },
+        ]),
+      });
+    });
+
+    await page.goto("/optimizations");
+    const highlightRow = page.getByTestId(`optimizations-history-row-${NEW_JOB_ID}`);
+    await expect(highlightRow).toContainText(NEW_JOB_ID);
   });
 
   test("surfaces export and rerun errors without breaking UI", async ({ page }) => {

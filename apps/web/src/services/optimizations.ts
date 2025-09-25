@@ -1,6 +1,7 @@
 import { api } from "./apiClient";
 import type {
   OptimizationExportBundle,
+  OptimizationJob,
   OptimizationStatus,
   OptimizationSubmitRequest,
   OptimizationSubmitResponse,
@@ -40,4 +41,9 @@ export function exportOptimizationBundle(
   id: string,
 ): Promise<OptimizationExportBundle> {
   return api.post<OptimizationExportBundle>(`/optimizations/${id}/export`);
+}
+
+export function fetchOptimizationHistory(limit = 50): Promise<OptimizationJob[]> {
+  const normalized = Number.isFinite(limit) ? Math.max(1, Math.floor(limit)) : 50;
+  return api.get<OptimizationJob[]>(`/optimizations/history?limit=${normalized}`);
 }

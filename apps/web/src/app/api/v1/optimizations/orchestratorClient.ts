@@ -126,6 +126,18 @@ export async function getOptimizationJobSnapshot(
   return getInMemorySnapshot(ownerId, jobId);
 }
 
+export async function listOptimizationJobs(
+  ownerId: string,
+  options: { limit?: number } = {},
+): Promise<OptimizationJob[]> {
+  const target = process.env.OPTIMIZATION_ORCHESTRATOR_URL?.trim();
+  const limit = normalizeHistoryLimit(options.limit);
+  if (target) {
+    return fetchRemoteHistory(target, ownerId, limit);
+  }
+  return listInMemoryJobs(ownerId, limit);
+}
+
 // ==== Remote orchestrator helpers ====
 async function sendToRemote(
   baseUrl: string,
@@ -257,6 +269,29 @@ async function fetchRemoteSnapshot(
     throw await buildRemoteError(res);
   }
   return (await res.json()) as OptimizationJobSnapshot;
+}
+
+async function fetchRemoteHistory(
+  baseUrl: string,
+  ownerId: string,
+  limit: number,
+): Promise<OptimizationJob[]> {
+  const url = new URL(`/internal/optimizations`, baseUrl);
+  url.searchParams.set("limit", String(limit));
+  const sharedSecret = process.env.OPTIMIZATION_ORCHESTRATOR_SECRET?.trim();
+  const headers: Record<string, string> = {
+    [OWNER_HEADER]: ownerId,
+    [REQUEST_ID_HEADER]: generateId(REQUEST_ID_PREFIX),
+  };
+  if (sharedSecret) {
+    headers[SHARED_SECRET_HEADER] = sharedSecret;
+  }
+  const res = await fetch(url.toString(), { method: "GET", headers });
+  if (!res.ok) {
+    throw await buildRemoteError(res);
+  }
+  const payload = (await res.json()) as OptimizationJob[];
+  return payload.map(normalizeHistoryJob);
 }
 
 async function exportRemoteBundle(
@@ -481,6 +516,30 @@ function getInMemorySnapshot(ownerId: string, jobId: string): OptimizationJobSna
   };
 }
 
+function listInMemoryJobs(ownerId: string, limit: number): OptimizationJob[] {
+  const store = getStore();
+  const states = Array.from(store.jobs.values()).filter((state) => state.job.ownerId === ownerId);
+  states.forEach((state) => refreshSummary(state));
+  states.sort(
+    (a, b) =>
+      parseIso(b.job.updatedAt ?? b.job.createdAt) - parseIso(a.job.updatedAt ?? a.job.createdAt),
+  );
+  return states.slice(0, limit).map((state) => ({
+    id: state.job.id,
+    ownerId: state.job.ownerId,
+    versionId: state.job.versionId,
+    paramSpace: clonePlain(state.job.paramSpace),
+    concurrencyLimit: state.job.concurrencyLimit,
+    earlyStopPolicy: state.job.earlyStopPolicy ? { ...state.job.earlyStopPolicy } : undefined,
+    status: state.job.status,
+    totalTasks: state.job.totalTasks,
+    summary: normalizeSummary(state.job.summary),
+    createdAt: state.job.createdAt,
+    updatedAt: state.job.updatedAt,
+    sourceJobId: state.job.sourceJobId,
+  }));
+}
+
 function buildInMemoryTasks(
   jobId: string,
   input: OptimizationCreateInput,
@@ -551,6 +610,30 @@ function cloneSummary(summary: OptimizationSummary): OptimizationSummary {
     throttled: summary.throttled,
     topN: summary.topN.map((entry) => ({ ...entry })),
   };
+}
+
+function normalizeSummary(summary: OptimizationSummary | null | undefined): OptimizationSummary {
+  if (!summary) {
+    return { total: 0, finished: 0, running: 0, throttled: 0, topN: [] };
+  }
+  const total = Number(summary.total ?? 0);
+  const finished = Number(summary.finished ?? 0);
+  const running = Number(summary.running ?? 0);
+  const throttled = Number(summary.throttled ?? 0);
+  const topN = Array.isArray(summary.topN)
+    ? summary.topN.map((entry) => {
+        const scoreNumber = Number((entry as any)?.score);
+        const score = Number.isFinite(scoreNumber) ? scoreNumber : 0;
+        const taskId = typeof (entry as any)?.taskId === "string" ? (entry as any).taskId : String((entry as any)?.taskId ?? "");
+        const resultSummaryId = typeof (entry as any)?.resultSummaryId === "string" ? (entry as any).resultSummaryId : undefined;
+        return {
+          taskId,
+          score,
+          resultSummaryId,
+        };
+      }).filter((entry) => entry.taskId)
+    : [];
+  return { total, finished, running, throttled, topN };
 }
 
 function ensureResultSummary(
@@ -709,6 +792,65 @@ export function debugResetJobs() {
   const store = getStore();
   store.jobs.clear();
   getResultStore().clear();
+}
+
+function normalizeHistoryJob(job: OptimizationJob): OptimizationJob {
+  return {
+    ...job,
+    paramSpace: clonePlain(job.paramSpace),
+    earlyStopPolicy: job.earlyStopPolicy ? { ...job.earlyStopPolicy } : undefined,
+    summary: normalizeSummary(job.summary),
+  };
+}
+
+function clonePlain<T>(value: T): T {
+  if (value == null) {
+    return value;
+  }
+  try {
+    // structuredClone 在 Node 18 / 浏览器中均可用
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    if (typeof structuredClone === "function") {
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore
+      return structuredClone(value);
+    }
+  } catch {
+    // ignore and fallback
+  }
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return value;
+  }
+}
+
+const HISTORY_DEFAULT_LIMIT = 50;
+const HISTORY_MAX_LIMIT = 200;
+
+function normalizeHistoryLimit(input?: number): number {
+  if (input == null) {
+    return HISTORY_DEFAULT_LIMIT;
+  }
+  const numeric = Number(input);
+  if (!Number.isFinite(numeric)) {
+    return HISTORY_DEFAULT_LIMIT;
+  }
+  const int = Math.floor(numeric);
+  if (int <= 0) {
+    return 1;
+  }
+  return Math.min(int, HISTORY_MAX_LIMIT);
+}
+
+function parseIso(value?: string): number {
+  if (!value) return 0;
+  const time = Date.parse(value);
+  if (Number.isNaN(time)) {
+    return 0;
+  }
+  return time;
 }
 
 // ==== Utilities ====

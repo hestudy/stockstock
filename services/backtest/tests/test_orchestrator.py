@@ -20,6 +20,7 @@ from services.backtest.app.orchestrator import (
     export_top_n_bundle,
     mark_task_failed,
     mark_task_succeeded,
+    list_jobs,
 )
 
 
@@ -254,6 +255,54 @@ def test_get_job_snapshot_reports_source_job():
     assert snapshot["id"] == job_id
     assert snapshot["sourceJobId"] == "original-123"
     assert snapshot["paramSpace"] == {"x": [1, 2]}
+
+
+def test_list_jobs_orders_by_updated_and_includes_summary():
+    first = create_optimization_job(
+        owner_id="owner-1",
+        version_id="v-1",
+        param_space={"x": [1, 2]},
+        concurrency_limit=1,
+    )
+    second = create_optimization_job(
+        owner_id="owner-1",
+        version_id="v-2",
+        param_space={"y": [3]},
+        concurrency_limit=1,
+        source_job_id="src-1",
+    )
+    task = dequeue_next("owner-1", second["id"])
+    mark_task_succeeded(second["id"], task["id"], score=1.3)
+
+    history = list_jobs("owner-1", limit=10)
+    assert history
+    assert [entry["id"] for entry in history[:2]] == [second["id"], first["id"]]
+    newest = history[0]
+    assert newest["summary"]["finished"] >= 1
+    assert newest["sourceJobId"] == "src-1"
+    assert newest["paramSpace"] == {"y": [3]}
+
+
+def test_list_jobs_filters_by_owner_and_applies_limit():
+    create_optimization_job(
+        owner_id="owner-1",
+        version_id="v-1",
+        param_space={"x": [1]},
+        concurrency_limit=1,
+    )
+    other = create_optimization_job(
+        owner_id="owner-2",
+        version_id="v-2",
+        param_space={"y": [2]},
+        concurrency_limit=1,
+    )
+    limited = list_jobs("owner-1", limit=0)
+    assert len(limited) == 1
+    assert limited[0]["ownerId"] == "owner-1"
+    foreign = list_jobs("owner-2", limit=5)
+    assert len(foreign) == 1
+    assert foreign[0]["id"] == other["id"]
+
 
 def test_param_error_marks_failed_and_counts_finished():
     result = create_optimization_job(

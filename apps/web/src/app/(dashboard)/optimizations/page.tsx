@@ -2,8 +2,8 @@
 
 import React from "react";
 import { useRouter } from "next/navigation";
-import type { OptimizationSubmitRequest } from "@shared/index";
-import { submitOptimization } from "../../../services/optimizations";
+import type { OptimizationJob, OptimizationSubmitRequest } from "@shared/index";
+import { submitOptimization, fetchOptimizationHistory } from "../../../services/optimizations";
 import { jobsStore } from "../../../services/jobsStore";
 import { mapErrorToMessage } from "../../../utils/errorMapping";
 
@@ -11,6 +11,8 @@ const DEFAULT_PARAM_SPACE = `{
   "ma_short": [5, 10],
   "ma_long": { "start": 50, "end": 60, "step": 5 }
 }`;
+
+const HISTORY_PAGE_SIZE = 20;
 
 export default function OptimizationsPage() {
   const router = useRouter();
@@ -24,6 +26,11 @@ export default function OptimizationsPage() {
   const [message, setMessage] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [lastRawError, setLastRawError] = React.useState<string | null>(null);
+  const historyRequestId = React.useRef(0);
+  const [history, setHistory] = React.useState<OptimizationJob[]>([]);
+  const [historyLoading, setHistoryLoading] = React.useState(true);
+  const [historyError, setHistoryError] = React.useState<string | null>(null);
+  const [highlightJobId, setHighlightJobId] = React.useState<string | null>(null);
   const redirectTimer = React.useRef<number | null>(null);
 
   React.useEffect(() => {
@@ -33,6 +40,53 @@ export default function OptimizationsPage() {
       }
     };
   }, []);
+
+  const fetchHistory = React.useCallback(
+    async (options?: { silent?: boolean }) => {
+      const requestId = historyRequestId.current + 1;
+      historyRequestId.current = requestId;
+      if (!options?.silent) {
+        setHistoryLoading(true);
+      }
+      try {
+        const jobs = await fetchOptimizationHistory(HISTORY_PAGE_SIZE);
+        if (historyRequestId.current !== requestId) {
+          return;
+        }
+        setHistory(jobs);
+        setHistoryError(null);
+      } catch (err) {
+        if (historyRequestId.current !== requestId) {
+          return;
+        }
+        setHistoryError(mapErrorToMessage(err));
+      } finally {
+        if (!options?.silent && historyRequestId.current === requestId) {
+          setHistoryLoading(false);
+        }
+      }
+    },
+    [mapErrorToMessage],
+  );
+
+  React.useEffect(() => {
+    fetchHistory().catch(() => {
+      // 错误会在 historyError 中展示
+    });
+  }, [fetchHistory]);
+
+  React.useEffect(() => {
+    const unsubscribe = jobsStore.subscribe((state) => {
+      if (!state.lastSubmittedId) {
+        return;
+      }
+      setHighlightJobId(state.lastSubmittedId);
+      fetchHistory({ silent: true }).catch(() => {
+        // 已在 fetchHistory 内处理错误
+      });
+    });
+    return () => unsubscribe();
+  }, [fetchHistory]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -275,6 +329,140 @@ export default function OptimizationsPage() {
           </div>
         )}
       </form>
+
+      <section className="space-y-3" data-testid="optimizations-history">
+        <header className="flex items-center justify-between">
+          <h2 className="text-xl font-semibold">历史作业</h2>
+          <div className="flex items-center gap-2 text-xs text-gray-500">
+            {historyLoading && <span data-testid="optimizations-history-loading">加载中…</span>}
+            <button
+              type="button"
+              data-testid="optimizations-history-refresh"
+              onClick={() => {
+                fetchHistory().catch(() => {
+                  // 错误在 historyError 中展示
+                });
+              }}
+              className="text-blue-600 hover:underline disabled:opacity-50"
+              disabled={historyLoading}
+            >
+              刷新
+            </button>
+          </div>
+        </header>
+
+        {historyError && (
+          <div
+            role="alert"
+            data-testid="optimizations-history-error"
+            className="text-sm text-red-600"
+          >
+            {historyError}
+          </div>
+        )}
+
+        <div className="overflow-x-auto border rounded">
+          <table className="min-w-full text-sm">
+            <thead className="bg-gray-50 dark:bg-slate-800/50 text-left">
+              <tr>
+                <th className="px-3 py-2 font-medium">作业 ID</th>
+                <th className="px-3 py-2 font-medium">状态</th>
+                <th className="px-3 py-2 font-medium">进度</th>
+                <th className="px-3 py-2 font-medium">更新时间</th>
+                <th className="px-3 py-2 font-medium">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {historyLoading && history.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-3 py-6 text-center text-gray-500">
+                    正在加载历史记录…
+                  </td>
+                </tr>
+              ) : history.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-3 py-6 text-center text-gray-500">
+                    暂无历史作业
+                  </td>
+                </tr>
+              ) : (
+                history.map((job) => {
+                  const summary = job.summary ?? { total: 0, finished: 0, running: 0, throttled: 0, topN: [] };
+                  const isHighlight = job.id === highlightJobId;
+                  return (
+                    <tr
+                      key={job.id}
+                      data-testid={`optimizations-history-row-${job.id}`}
+                      className={`border-t border-gray-100 dark:border-slate-800 ${
+                        isHighlight ? "bg-emerald-50 dark:bg-emerald-500/10" : ""
+                      }`}
+                    >
+                      <td className="px-3 py-2 align-top">
+                        <div className="font-mono text-sm">{job.id}</div>
+                        {job.sourceJobId && (
+                          <div className="text-xs text-gray-500 dark:text-slate-400">
+                            来源：{job.sourceJobId}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 align-top">
+                        <span>{translateJobStatus(job.status)}</span>
+                      </td>
+                      <td className="px-3 py-2 align-top">
+                        {formatHistoryProgress(summary)}
+                      </td>
+                      <td className="px-3 py-2 align-top">
+                        {formatHistoryTimestamp(job.updatedAt)}
+                      </td>
+                      <td className="px-3 py-2 align-top">
+                        <button
+                          type="button"
+                          className="text-blue-600 hover:underline"
+                          onClick={() => router.push(`/optimizations/${job.id}`)}
+                        >
+                          查看详情
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </main>
   );
+}
+
+function translateJobStatus(status: string): string {
+  const mapping: Record<string, string> = {
+    queued: "排队中",
+    running: "执行中",
+    succeeded: "已完成",
+    failed: "失败",
+    "early-stopped": "提前停止",
+    canceled: "已取消",
+  };
+  return mapping[status] ?? status;
+}
+
+function formatHistoryTimestamp(value?: string): string {
+  if (!value) return "--";
+  const time = Number.isNaN(Date.parse(value)) ? null : new Date(value);
+  if (!time) return value;
+  try {
+    return time.toLocaleString();
+  } catch {
+    return value;
+  }
+}
+
+function formatHistoryProgress(summary: OptimizationJob["summary"]): string {
+  const finished = summary?.finished ?? 0;
+  const total = summary?.total ?? 0;
+  if (total <= 0) {
+    return `${finished}`;
+  }
+  return `${finished}/${total}`;
 }
