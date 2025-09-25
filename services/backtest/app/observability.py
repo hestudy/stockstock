@@ -132,6 +132,28 @@ def log_error(
     )
 
 
+def log_stop(
+    jobId: str,
+    ownerId: str,
+    status: str,
+    *,
+    reason: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Record a structured log when a job enters a terminal state."""
+
+    extra: Dict[str, Any] = {"status": status}
+    if reason:
+        extra["reason"] = reason
+    log(
+        "info",
+        "job stop",
+        jobId=jobId,
+        ownerId=ownerId,
+        phase="stop",
+        extra=extra,
+    )
+
+
 def emit_metric(
     name: str,
     value: float,

@@ -35,7 +35,7 @@ except Exception:  # pragma: no cover - optional dependency
     Engine = None
     Boolean = Column = DateTime = Integer = JSON = MetaData = String = Table = insert = select = update = delete = Float = None
 
-from .observability import emit_metric
+from .observability import emit_metric, log_stop
 
 JobStatus = str
 DEFAULT_STATUS: JobStatus = "queued"
@@ -759,6 +759,20 @@ def _lock_job(
             task.last_error = None
             if _PERSISTENCE.enabled:
                 _PERSISTENCE.update_task(task)
+    tags = {
+        "jobId": job.id,
+        "ownerId": job.owner_id,
+        "status": status,
+        "stopKind": (reason or {}).get("kind", "unknown"),
+    }
+    emit_metric("job_stop_total", 1.0, tags=tags)
+    threshold_value = _to_float((reason or {}).get("threshold"))
+    if threshold_value is not None:
+        emit_metric("job_stop_threshold", threshold_value, tags=tags)
+    score_value = _to_float((reason or {}).get("score"))
+    if score_value is not None:
+        emit_metric("job_stop_score", score_value, tags=tags)
+    log_stop(job.id, job.owner_id, status, reason=reason)
     _refresh_summary(job)
     if _PERSISTENCE.enabled:
         _PERSISTENCE.update_job(job)
@@ -799,6 +813,15 @@ def _summary_to_dict(summary: OptimizationSummary) -> Dict[str, Any]:
         "throttled": summary.throttled,
         "topN": summary.top_n,
     }
+
+
+def _to_float(value: Any) -> Optional[float]:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _to_datetime(value: Optional[Any]) -> Optional[datetime]:

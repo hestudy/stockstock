@@ -279,6 +279,51 @@ def test_early_stop_triggers_job_lock():
     assert all(task.status in {"succeeded", "early-stopped"} for task in stored_tasks)
 
 
+def test_early_stop_emits_metrics_and_logs(monkeypatch):
+    captured_metrics = []
+    captured_logs = []
+
+    monkeypatch.setattr(
+        "services.backtest.app.orchestrator.emit_metric",
+        lambda name, value, tags=None: captured_metrics.append((name, value, tags)),
+    )
+    monkeypatch.setattr(
+        "services.backtest.app.orchestrator.log_stop",
+        lambda job_id, owner_id, status, reason=None: captured_logs.append((job_id, owner_id, status, reason)),
+    )
+
+    job = create_optimization_job(
+        owner_id="owner-1",
+        version_id="v-1",
+        param_space={"x": [1, 2]},
+        concurrency_limit=1,
+        early_stop_policy={"metric": "sharpe", "threshold": 1.0, "mode": "max"},
+    )
+    job_id = job["id"]
+    task = dequeue_next("owner-1", job_id)
+    mark_task_succeeded(job_id, task["id"], score=1.2)
+
+    stop_metrics = [m for m in captured_metrics if m[0] == "job_stop_total"]
+    assert stop_metrics, "job_stop_total 应在早停时记录"
+    name, value, tags = stop_metrics[-1]
+    assert value == 1.0
+    assert tags["status"] == "early-stopped"
+    assert tags["stopKind"] == "EARLY_STOP_THRESHOLD"
+    assert tags["jobId"] == job_id
+
+    threshold_metrics = [m for m in captured_metrics if m[0] == "job_stop_threshold"]
+    assert threshold_metrics and threshold_metrics[-1][1] == 1.0
+    score_metrics = [m for m in captured_metrics if m[0] == "job_stop_score"]
+    assert score_metrics and score_metrics[-1][1] == 1.2
+
+    assert captured_logs, "早停应产生结构化 stop 日志"
+    logged_job_id, logged_owner, logged_status, reason = captured_logs[-1]
+    assert logged_job_id == job_id
+    assert logged_owner == "owner-1"
+    assert logged_status == "early-stopped"
+    assert reason and reason.get("kind") == "EARLY_STOP_THRESHOLD"
+
+
 def test_get_job_status_enforces_owner():
     result = create_optimization_job(
         owner_id="owner-1",
@@ -377,3 +422,45 @@ def test_cancel_job_updates_tasks_and_summary():
     assert dequeue_next("owner-1", job_id) is None
     statuses = {task.status for task in debug_tasks(job_id)}
     assert statuses <= {"canceled", "succeeded", "failed"}
+
+
+def test_cancel_job_emits_metrics_and_logs(monkeypatch):
+    captured_metrics = []
+    captured_logs = []
+
+    monkeypatch.setattr(
+        "services.backtest.app.orchestrator.emit_metric",
+        lambda name, value, tags=None: captured_metrics.append((name, value, tags)),
+    )
+    monkeypatch.setattr(
+        "services.backtest.app.orchestrator.log_stop",
+        lambda job_id, owner_id, status, reason=None: captured_logs.append((job_id, owner_id, status, reason)),
+    )
+
+    job = create_optimization_job(
+        owner_id="owner-1",
+        version_id="v-1",
+        param_space={"x": [1, 2]},
+        concurrency_limit=1,
+    )
+    job_id = job["id"]
+    cancel_job(job_id, "owner-1", reason="manual-stop")
+
+    stop_metrics = [m for m in captured_metrics if m[0] == "job_stop_total"]
+    assert stop_metrics, "job_stop_total 应在取消时记录"
+    _, value, tags = stop_metrics[-1]
+    assert value == 1.0
+    assert tags["status"] == "canceled"
+    assert tags["stopKind"] == "CANCELED"
+    assert tags["jobId"] == job_id
+
+    # 取消不应输出阈值或分数指标
+    assert not [m for m in captured_metrics if m[0] == "job_stop_threshold"]
+    assert not [m for m in captured_metrics if m[0] == "job_stop_score"]
+
+    assert captured_logs, "取消应产生结构化 stop 日志"
+    logged_job_id, logged_owner, logged_status, reason = captured_logs[-1]
+    assert logged_job_id == job_id
+    assert logged_owner == "owner-1"
+    assert logged_status == "canceled"
+    assert reason and reason.get("kind") == "CANCELED"
