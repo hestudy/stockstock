@@ -2,7 +2,10 @@
 
 import React from "react";
 import type { OptimizationStatus } from "@shared/index";
-import { fetchOptimizationStatus } from "../../../../services/optimizations";
+import {
+  fetchOptimizationStatus,
+  cancelOptimization,
+} from "../../../../services/optimizations";
 import { mapErrorToMessage } from "../../../../utils/errorMapping";
 
 const REFRESH_INTERVAL_MS = 5000;
@@ -20,6 +23,8 @@ function OptimizationStatusView({ jobId }: { jobId: string }) {
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [lastUpdated, setLastUpdated] = React.useState<Date | null>(null);
+  const [notice, setNotice] = React.useState<string | null>(null);
+  const [canceling, setCanceling] = React.useState(false);
 
   const loadStatus = React.useCallback(async () => {
     try {
@@ -55,6 +60,32 @@ function OptimizationStatusView({ jobId }: { jobId: string }) {
   );
   const topN = status?.summary?.topN ?? [];
   const topNSortingNote = describeTopNSorting(topN);
+  const isFinal = React.useMemo(() => {
+    if (!status) return false;
+    if (status.diagnostics?.final) return true;
+    return ["succeeded", "failed", "early-stopped", "canceled"].includes(
+      status.status,
+    );
+  }, [status]);
+
+  const handleCancel = React.useCallback(async () => {
+    if (canceling || isFinal) {
+      return;
+    }
+    setCanceling(true);
+    setNotice(null);
+    try {
+      const nextStatus = await cancelOptimization(jobId);
+      setStatus(nextStatus);
+      setError(null);
+      setNotice("已发起取消请求，状态已刷新。");
+      setLastUpdated(new Date());
+    } catch (err) {
+      setError(mapErrorToMessage(err));
+    } finally {
+      setCanceling(false);
+    }
+  }, [canceling, isFinal, jobId]);
 
   return (
     <main className="p-4 space-y-6" data-testid="optimizations-detail">
@@ -73,18 +104,40 @@ function OptimizationStatusView({ jobId }: { jobId: string }) {
         )}
       </header>
 
-      <section className="flex gap-3" data-testid="optimizations-actions">
-        <button
-          type="button"
-          onClick={() => {
-            setLoading(true);
-            loadStatus();
-          }}
-          className="px-3 py-1 border rounded disabled:opacity-50"
-          disabled={loading}
-        >
-          {loading ? "加载中..." : "立即刷新"}
-        </button>
+      <section
+        className="flex flex-wrap items-center gap-3"
+        data-testid="optimizations-actions"
+      >
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              setLoading(true);
+              loadStatus();
+            }}
+            className="px-3 py-1 border rounded disabled:opacity-50"
+            disabled={loading}
+          >
+            {loading ? "加载中..." : "立即刷新"}
+          </button>
+          <button
+            type="button"
+            data-testid="optimizations-cancel"
+            onClick={handleCancel}
+            className="px-3 py-1 border border-red-500 text-red-600 rounded hover:bg-red-50 disabled:opacity-50"
+            disabled={canceling || isFinal}
+          >
+            {canceling ? "取消中..." : "取消作业"}
+          </button>
+        </div>
+        {notice && (
+          <span
+            data-testid="optimizations-detail-notice"
+            className="text-sm text-emerald-600"
+          >
+            {notice}
+          </span>
+        )}
         {error && (
           <span
             role="alert"

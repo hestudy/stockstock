@@ -30,7 +30,8 @@ test.describe("Optimization submit UI", () => {
 
     await page.click('[data-testid="optimizations-submit"]');
 
-    await expect(page.getByText("提交成功，正在跳转...", { exact: false })).toBeVisible();
+    const successNotice = page.locator('[data-testid="optimizations-success"]');
+    await expect(successNotice).toContainText("提交成功");
     await expect(page).toHaveURL(/\/optimizations\/opt-e2e-1$/);
   });
 

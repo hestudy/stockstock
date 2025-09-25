@@ -56,6 +56,34 @@ const EARLY_STOP_PAYLOAD = {
   },
 };
 
+const CANCELED_PAYLOAD = {
+  id: JOB_ID,
+  status: "canceled",
+  totalTasks: 6,
+  concurrencyLimit: 2,
+  summary: {
+    total: 6,
+    finished: 3,
+    running: 0,
+    throttled: 0,
+    topN: [
+      { taskId: "task-low", score: 0.45 },
+      { taskId: "task-mid", score: 0.55 },
+      { taskId: "task-high", score: 0.63 },
+    ],
+  },
+  diagnostics: {
+    throttled: false,
+    queueDepth: 0,
+    running: 0,
+    final: true,
+    stopReason: {
+      kind: "CANCELED",
+      reason: "manual",
+    },
+  },
+};
+
 test.describe("Optimizations Detail — Top-N & Throttle", () => {
   test("renders throttling banner and sorted topN table", async ({ page }) => {
     // 拦截状态轮询，提供稳定的返回数据
@@ -144,5 +172,50 @@ test.describe("Optimizations Detail — Early Stop & Cancel", () => {
     await expect(rows).toHaveCount(3);
     await expect(rows.first()).toContainText("task-low");
     await expect(rows.first()).toContainText("0.4500");
+  });
+});
+
+test.describe("Optimizations Detail — Cancel Flow", () => {
+  test("cancels job and surfaces final diagnostics", async ({ page }) => {
+    let currentStatus = STATUS_PAYLOAD;
+
+    await page.route(new RegExp(`/api/v1/optimizations/${JOB_ID}/status`), async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(currentStatus),
+      });
+    });
+
+    await page.route(
+      new RegExp(`/api/v1/optimizations/${JOB_ID}/cancel`),
+      async (route) => {
+        currentStatus = CANCELED_PAYLOAD;
+        await route.fulfill({
+          status: 202,
+          contentType: "application/json",
+          body: JSON.stringify(CANCELED_PAYLOAD),
+        });
+      },
+    );
+
+    await page.context().addCookies([
+      { name: "e2e_auth_bypass", value: "1", domain: "localhost", path: "/" },
+    ]);
+
+    await page.goto(`/optimizations/${JOB_ID}`);
+
+    await expect(page.getByTestId("metric-状态")).toContainText("执行中");
+
+    const cancelButton = page.getByTestId("optimizations-cancel");
+    await expect(cancelButton).toBeEnabled();
+    await cancelButton.click();
+
+    await expect(page.getByTestId("optimizations-detail-notice")).toContainText(
+      "取消请求",
+    );
+    await expect(page.getByTestId("metric-状态")).toContainText("已取消");
+    await expect(page.getByTestId("optimizations-throttle-banner")).toHaveCount(0);
+    await expect(cancelButton).toBeDisabled();
   });
 });

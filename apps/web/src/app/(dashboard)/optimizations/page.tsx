@@ -24,6 +24,15 @@ export default function OptimizationsPage() {
   const [message, setMessage] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [lastRawError, setLastRawError] = React.useState<string | null>(null);
+  const redirectTimer = React.useRef<number | null>(null);
+
+  React.useEffect(() => {
+    return () => {
+      if (redirectTimer.current !== null) {
+        window.clearTimeout(redirectTimer.current);
+      }
+    };
+  }, []);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -105,7 +114,12 @@ export default function OptimizationsPage() {
         jobsStore.setLastSubmittedId(response.id);
       } catch {}
       setMessage("提交成功，正在跳转...");
-      router.push(`/optimizations/${response.id}`);
+      if (redirectTimer.current !== null) {
+        window.clearTimeout(redirectTimer.current);
+      }
+      redirectTimer.current = window.setTimeout(() => {
+        router.push(`/optimizations/${response.id}`);
+      }, 100);
     } catch (err: unknown) {
       const friendly = mapErrorToMessage(err);
       setError(friendly);
@@ -239,7 +253,11 @@ export default function OptimizationsPage() {
           >
             {submitting ? "提交中..." : "提交寻优"}
           </button>
-          <div aria-live="polite" className="text-sm text-gray-600 dark:text-slate-300">
+        <div
+          aria-live="polite"
+          data-testid="optimizations-success"
+          className="text-sm text-gray-600 dark:text-slate-300"
+        >
             {message ?? ""}
           </div>
         </div>

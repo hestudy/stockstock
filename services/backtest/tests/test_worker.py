@@ -122,3 +122,28 @@ def test_worker_retry_then_success(monkeypatch):
     assert len(queue_metrics) >= 2
     retry_metrics = [m for m in metrics if m[0] == "job_retry_total"]
     assert any(m[1] >= 1 for m in retry_metrics)
+
+
+def test_worker_respects_observability_toggle(monkeypatch):
+    monkeypatch.setenv("OBS_ENABLED", "false")
+    monkeypatch.setenv("OBS_METRICS_ENABLED", "false")
+
+    def fail_write(_payload):
+        raise AssertionError("observability disabled should avoid writes")
+
+    monkeypatch.setattr("services.backtest.app.observability._write", fail_write)
+
+    job = create_optimization_job(
+        owner_id="owner-toggle",
+        version_id="v-toggle",
+        param_space={"alpha": [1, 2]},
+        concurrency_limit=1,
+    )
+
+    result = worker.process_next(
+        "owner-toggle",
+        lambda task: {"score": sum(task["params"].values())},
+    )
+
+    assert result["status"] == "succeeded"
+    assert result["taskStatus"] == "succeeded"
