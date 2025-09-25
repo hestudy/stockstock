@@ -25,6 +25,37 @@ const STATUS_PAYLOAD = {
   },
 };
 
+const EARLY_STOP_PAYLOAD = {
+  id: JOB_ID,
+  status: "early-stopped",
+  totalTasks: 6,
+  concurrencyLimit: 2,
+  summary: {
+    total: 6,
+    finished: 6,
+    running: 0,
+    throttled: 0,
+    topN: [
+      { taskId: "task-low", score: 0.45 },
+      { taskId: "task-mid", score: 0.55 },
+      { taskId: "task-high", score: 0.63 },
+    ],
+  },
+  diagnostics: {
+    throttled: false,
+    queueDepth: 0,
+    running: 0,
+    final: true,
+    stopReason: {
+      kind: "EARLY_STOP_THRESHOLD",
+      metric: "drawdown",
+      threshold: 0.6,
+      score: 0.45,
+      mode: "min",
+    },
+  },
+};
+
 test.describe("Optimizations Detail — Top-N & Throttle", () => {
   test("renders throttling banner and sorted topN table", async ({ page }) => {
     // 拦截状态轮询，提供稳定的返回数据
@@ -78,5 +109,40 @@ test.describe("Optimizations Detail — Top-N & Throttle", () => {
 
     // 验证初始渲染无错误信息
     await expect(page.getByTestId("optimizations-detail-error")).toHaveCount(0);
+  });
+});
+
+test.describe("Optimizations Detail — Early Stop & Cancel", () => {
+  test("updates status to early stop and hides throttle banner after refresh", async ({ page }) => {
+    let hitCount = 0;
+    await page.route(new RegExp(`/api/v1/optimizations/${JOB_ID}/status`), async (route) => {
+      const payload = hitCount === 0 ? STATUS_PAYLOAD : EARLY_STOP_PAYLOAD;
+      hitCount += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(payload),
+      });
+    });
+
+    await page.context().addCookies([
+      { name: "e2e_auth_bypass", value: "1", domain: "localhost", path: "/" },
+    ]);
+
+    await page.goto(`/optimizations/${JOB_ID}`);
+
+    const statusMetric = page.getByTestId("metric-状态");
+    await expect(statusMetric).toContainText("执行中");
+    await expect(page.getByTestId("optimizations-throttle-banner")).toBeVisible();
+
+    await page.getByRole("button", { name: "立即刷新" }).click();
+
+    await expect(statusMetric).toContainText("提前停止");
+    await expect(page.getByTestId("optimizations-throttle-banner")).toHaveCount(0);
+
+    const rows = page.getByTestId("optimizations-topn").locator("tbody tr");
+    await expect(rows).toHaveCount(3);
+    await expect(rows.first()).toContainText("task-low");
+    await expect(rows.first()).toContainText("0.4500");
   });
 });
