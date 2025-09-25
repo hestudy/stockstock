@@ -2,28 +2,23 @@
 schema: 1
 story: "2.3"
 story_title: "Workers & Early Stop"
-gate: "CONCERNS" # PASS|CONCERNS|FAIL|WAIVED
-status_reason: "Worker 指标与状态机路径已闭环，但 Orchestrator 早停/取消缺乏可观测指标与结构化日志验证，Queue/Compute SLO 无法证明覆盖，因此维持 CONCERNS。"
+gate: "PASS" # PASS|CONCERNS|FAIL|WAIVED
+status_reason: "Worker 与 Orchestrator 终止路径已发射 job_stop 系列指标并写入结构化日志，取消入口返回 202 并透传 diagnostics，端到端验证提前停止与取消 UI 表现。残余仅为运行配置保障，已记录为运维提醒。"
 reviewer: "Quinn (Test Architect)"
-updated: "2025-09-25T04:43:41Z"
+updated: "2025-09-26T05:20:00Z"
 
 waiver: { active: false }
 
-top_issues:
-  - id: "OBS-201"
-    severity: medium
-    finding: "Orchestrator 早停/取消未输出可验证的指标与结构化日志，AC4 观测链路仍为部分覆盖"
-    suggested_action: "为 _maybe_trigger_early_stop/_lock_job 补充 emit_metric/log 写入，并在 test_orchestrator.py/集成测试中打桩断言终止事件和标签"
+top_issues: []
 
 trace:
   totals:
     requirements: 5
-    full: 4
-    partial: 1
+    full: 5
+    partial: 0
     none: 0
   planning_ref: "docs/qa/assessments/2.3-risk-20250924.md"
-  uncovered:
-    - "AC4: Orchestrator 终止指标与日志缺乏验证"
+  uncovered: []
   notes: "详见 docs/qa/assessments/2.3-trace-20250925.md"
 
 nfr_validation:
@@ -31,35 +26,35 @@ nfr_validation:
     status: PASS
     notes: "共享密钥与 ownerId 校验覆盖越权与认证失败路径。"
   performance:
-    status: CONCERNS
-    notes: "Worker 指标已验证，但 Orchestrator 终止事件无指标/日志，Queue/Compute SLO 无法闭环。"
+    status: PASS
+    notes: "job_stop_total/threshold/score 指标与结构化日志均已在单测打桩验证，Queue/Compute SLO 可闭环；需确保 OBS 配置在部署环境保持开启。"
   reliability:
-    status: CONCERNS
-    notes: "早停/取消状态机稳定，但缺乏终止事件观测导致告警不可验证。"
+    status: PASS
+    notes: "早停/取消状态机配合指标/日志俱全，自动化测试覆盖终止信号。"
   maintainability:
     status: PASS
     notes: "单元/集成/E2E 测试完整，文档与共享类型保持同步。"
 
 evidence:
   tests_reviewed: 44
-  risks_identified: 1
+  risks_identified: 0
   trace:
-    ac_covered: [1, 2, 3, 5]
-    ac_gaps: [4]
+    ac_covered: [1, 2, 3, 4, 5]
+    ac_gaps: []
   story_file: docs/stories/2.3.workers-early-stop.md
   traceability: docs/qa/assessments/2.3-trace-20250925.md
   nfr_assessment: docs/qa/assessments/2.3-nfr-20250925.md
   test_design: docs/qa/assessments/2.3-risk-20250924.md
 
-quality_score: 80
-expires: "2025-10-09T04:43:41Z"
+quality_score: 92
+expires: "2025-10-10T05:20:00Z"
 
 recommendations:
   immediate:
-    - action: "为 orchestrator 终止路径补充指标/日志并在单测打桩验证"
+    - action: "上线阶段确认 OBS_ENABLED/OBS_METRICS_ENABLED 配置保持开启，纳入运维基线"
       refs:
-        - "services/backtest/app/orchestrator.py"
-        - "services/backtest/tests/test_orchestrator.py"
+        - "services/backtest/app/observability.py"
+        - "deploy/configuration"
   future:
     - action: "扩展 Next.js/FastAPI 集成测试与 Playwright 降级场景以验证观测缺失提示"
       refs:
