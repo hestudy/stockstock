@@ -9,6 +9,7 @@ import {
   rerunOptimization,
   exportOptimizationBundle,
 } from "../../../../services/optimizations";
+import { jobsStore } from "../../../../services/jobsStore";
 import { mapErrorToMessage } from "../../../../utils/errorMapping";
 
 const REFRESH_INTERVAL_MS = 5000;
@@ -133,6 +134,9 @@ function OptimizationStatusView({ jobId }: { jobId: string }) {
       setRerunLoadingId(loadingKey);
       try {
         const response = await rerunOptimization(jobId);
+        try {
+          jobsStore.recordSubmission(response.id, response.sourceJobId ?? jobId);
+        } catch {}
         const message = sourceTaskId
           ? `已根据 Top-N 任务 ${sourceTaskId} 创建复运行作业 ${response.id}`
           : `已创建复运行作业 ${response.id}`;

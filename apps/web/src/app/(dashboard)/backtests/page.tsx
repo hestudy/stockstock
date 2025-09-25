@@ -32,7 +32,7 @@ export default function BacktestsPage() {
       const res = await submitBacktest(payload);
       // 写入最近提交的 job id，便于状态页/其他组件消费
       try {
-        jobsStore.setLastSubmittedId(res.id);
+        jobsStore.recordSubmission(res.id);
       } catch {}
       setMessage("已提交，正在跳转...");
       // 跳转到状态/详情页（1.4 将继续完善）

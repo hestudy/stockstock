@@ -3,12 +3,14 @@
 
 export type JobsState = {
   lastSubmittedId: string | null;
+  lastSourceJobId: string | null;
 };
 
 type Listener = (s: JobsState) => void;
 
 const state: JobsState = {
   lastSubmittedId: null,
+  lastSourceJobId: null,
 };
 
 const listeners = new Set<Listener>();
@@ -25,8 +27,21 @@ export const jobsStore = {
     } catch {}
     return () => listeners.delete(fn);
   },
-  setLastSubmittedId(id: string) {
+  recordSubmission(id: string, sourceJobId?: string | null) {
     state.lastSubmittedId = id;
+    state.lastSourceJobId = sourceJobId ?? null;
+    for (const fn of Array.from(listeners)) {
+      try {
+        fn({ ...state });
+      } catch {}
+    }
+  },
+  setLastSubmittedId(id: string) {
+    jobsStore.recordSubmission(id);
+  },
+  reset() {
+    state.lastSubmittedId = null;
+    state.lastSourceJobId = null;
     for (const fn of Array.from(listeners)) {
       try {
         fn({ ...state });

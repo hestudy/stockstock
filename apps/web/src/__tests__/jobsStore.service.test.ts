@@ -1,21 +1,52 @@
 // @vitest-environment node
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { jobsStore } from "../services/jobsStore";
 
 describe("services/jobsStore", () => {
-  it("initial state has null lastSubmittedId", () => {
-    const s = jobsStore.getState();
-    expect(s.lastSubmittedId).toBeNull();
+  beforeEach(() => {
+    jobsStore.reset();
   });
 
-  it("setLastSubmittedId updates state and notifies subscribers", () => {
-    let notified: string | null = null;
+  it("initial state has null submissions", () => {
+    const s = jobsStore.getState();
+    expect(s.lastSubmittedId).toBeNull();
+    expect(s.lastSourceJobId).toBeNull();
+  });
+
+  it("recordSubmission updates state and notifies subscribers", () => {
+    let notifiedId: string | null = null;
+    let notifiedSource: string | null = "__unset";
     const unsub = jobsStore.subscribe((s) => {
-      notified = s.lastSubmittedId;
+      notifiedId = s.lastSubmittedId;
+      notifiedSource = s.lastSourceJobId;
     });
-    jobsStore.setLastSubmittedId("job-123");
-    expect(jobsStore.getState().lastSubmittedId).toBe("job-123");
-    expect(notified).toBe("job-123");
+    jobsStore.recordSubmission("job-123", "orig-456");
+    const current = jobsStore.getState();
+    expect(current.lastSubmittedId).toBe("job-123");
+    expect(current.lastSourceJobId).toBe("orig-456");
+    expect(notifiedId).toBe("job-123");
+    expect(notifiedSource).toBe("orig-456");
+    unsub();
+  });
+
+  it("setLastSubmittedId falls back to recordSubmission without source", () => {
+    jobsStore.setLastSubmittedId("job-789");
+    const current = jobsStore.getState();
+    expect(current.lastSubmittedId).toBe("job-789");
+    expect(current.lastSourceJobId).toBeNull();
+  });
+
+  it("reset clears state and emits notification", () => {
+    let notifications = 0;
+    const unsub = jobsStore.subscribe(() => {
+      notifications += 1;
+    });
+    jobsStore.recordSubmission("job-1", "src-1");
+    jobsStore.reset();
+    const current = jobsStore.getState();
+    expect(current.lastSubmittedId).toBeNull();
+    expect(current.lastSourceJobId).toBeNull();
+    expect(notifications).toBeGreaterThanOrEqual(2);
     unsub();
   });
 });

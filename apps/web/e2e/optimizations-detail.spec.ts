@@ -84,6 +84,29 @@ const CANCELED_PAYLOAD = {
   },
 };
 
+const NEW_JOB_ID = "opt-e2e-detail-rerun";
+
+const RERUN_STATUS_PAYLOAD = {
+  id: NEW_JOB_ID,
+  status: "queued",
+  totalTasks: 6,
+  concurrencyLimit: 2,
+  summary: {
+    total: 6,
+    finished: 0,
+    running: 0,
+    throttled: 0,
+    topN: [
+      { taskId: "task-new", score: 1.01 },
+    ],
+  },
+  diagnostics: {
+    throttled: false,
+    queueDepth: 0,
+    running: 0,
+  },
+};
+
 test.describe("Optimizations Detail — Top-N & Throttle", () => {
   test("renders throttling banner and sorted topN table", async ({ page }) => {
     // 拦截状态轮询，提供稳定的返回数据
@@ -217,5 +240,114 @@ test.describe("Optimizations Detail — Cancel Flow", () => {
     await expect(page.getByTestId("metric-状态")).toContainText("已取消");
     await expect(page.getByTestId("optimizations-throttle-banner")).toHaveCount(0);
     await expect(cancelButton).toBeDisabled();
+  });
+});
+
+test.describe("Optimizations Detail — Export & Rerun", () => {
+  test.beforeEach(async ({ page, context }) => {
+    await context.addCookies([
+      { name: "e2e_auth_bypass", value: "1", domain: "localhost", path: "/" },
+    ]);
+    await page.addInitScript(() => {
+      if (typeof URL.createObjectURL !== "function") {
+        URL.createObjectURL = () => "blob:mock";
+      }
+      if (typeof URL.revokeObjectURL !== "function") {
+        URL.revokeObjectURL = () => {};
+      }
+    });
+  });
+
+  test("exports bundle then reruns and redirects to new job", async ({ page }) => {
+    let statusHit = 0;
+    await page.route(new RegExp(`/api/v1/optimizations/${JOB_ID}/status`), async (route) => {
+      const payload = statusHit === 0 ? STATUS_PAYLOAD : EARLY_STOP_PAYLOAD;
+      statusHit += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(payload),
+      });
+    });
+    await page.route(new RegExp(`/api/v1/optimizations/${NEW_JOB_ID}/status`), async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(RERUN_STATUS_PAYLOAD),
+      });
+    });
+    await page.route(new RegExp(`/api/v1/optimizations/${JOB_ID}/export`), async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          jobId: JOB_ID,
+          status: "succeeded",
+          generatedAt: new Date().toISOString(),
+          summary: STATUS_PAYLOAD.summary,
+          items: [],
+        }),
+      });
+    });
+    await page.route(new RegExp(`/api/v1/optimizations/${JOB_ID}/rerun`), async (route) => {
+      await route.fulfill({
+        status: 202,
+        contentType: "application/json",
+        body: JSON.stringify({ id: NEW_JOB_ID, status: "queued", sourceJobId: JOB_ID }),
+      });
+    });
+
+    await page.goto(`/optimizations/${JOB_ID}`);
+
+    await expect(page.getByTestId("optimizations-detail")).toBeVisible();
+
+    await page.getByRole("button", { name: "立即刷新" }).click();
+    await expect(page.getByTestId("metric-状态")).toContainText("提前停止");
+
+    await page.getByTestId("optimizations-export").click();
+    await expect(page.getByTestId("optimizations-detail-notice")).toContainText("Top-N 聚合包");
+
+    await page.getByTestId("optimizations-rerun").click();
+    await page.waitForURL(new RegExp(`/optimizations/${NEW_JOB_ID}$`));
+    await expect(page.getByTestId("optimizations-job-id")).toContainText(NEW_JOB_ID);
+  });
+
+  test("surfaces export and rerun errors without breaking UI", async ({ page }) => {
+    await page.route(new RegExp(`/api/v1/optimizations/${JOB_ID}/status`), async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(STATUS_PAYLOAD),
+      });
+    });
+    await page.route(new RegExp(`/api/v1/optimizations/${JOB_ID}/export`), async (route) => {
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: { code: "E.INTERNAL", message: "export failure" },
+        }),
+      });
+    });
+    await page.route(new RegExp(`/api/v1/optimizations/${JOB_ID}/rerun`), async (route) => {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: { code: "E.DEP_UPSTREAM", message: "rerun busy" },
+        }),
+      });
+    });
+
+    await page.goto(`/optimizations/${JOB_ID}`);
+
+    await expect(page.getByTestId("optimizations-detail")).toBeVisible();
+
+    await page.getByTestId("optimizations-export").click();
+    await expect(page.getByTestId("optimizations-export-error")).toContainText("服务暂不可用");
+
+    await page.getByTestId("optimizations-rerun").click();
+    await expect(page.getByTestId("optimizations-rerun-error")).toContainText("服务暂不可用");
+    await expect(page.getByTestId("optimizations-detail")).toBeVisible();
   });
 });

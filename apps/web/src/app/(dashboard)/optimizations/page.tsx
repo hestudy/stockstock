@@ -111,7 +111,7 @@ export default function OptimizationsPage() {
 
       const response = await submitOptimization(payload);
       try {
-        jobsStore.setLastSubmittedId(response.id);
+        jobsStore.recordSubmission(response.id, response.sourceJobId ?? null);
       } catch {}
       setMessage("提交成功，正在跳转...");
       if (redirectTimer.current !== null) {

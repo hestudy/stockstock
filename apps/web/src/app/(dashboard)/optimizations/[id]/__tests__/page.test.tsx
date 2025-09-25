@@ -3,6 +3,7 @@ import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { OptimizationStatus } from "@shared/index";
+import { jobsStore } from "../../../../../services/jobsStore";
 
 const pushMock = vi.fn();
 
@@ -61,6 +62,7 @@ beforeEach(() => {
   });
   cancelMock.mockReset().mockResolvedValue(baseStatus);
   pushMock.mockReset();
+  jobsStore.reset();
 });
 
 afterEach(() => {
@@ -104,6 +106,9 @@ describe("Optimization Detail Page", () => {
     fireEvent.click(button);
     await waitFor(() => expect(rerunMock).toHaveBeenCalledWith("opt-1"));
     expect(pushMock).toHaveBeenCalledWith("/optimizations/opt-new");
+    const state = jobsStore.getState();
+    expect(state.lastSubmittedId).toBe("opt-new");
+    expect(state.lastSourceJobId).toBe("opt-1");
   });
 
   it("calls export bundle and shows notice", async () => {
