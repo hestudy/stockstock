@@ -1,0 +1,63 @@
+# <!-- Powered by BMAD™ Core -->
+schema: 1
+story: "2.4"
+story_title: "Progress & Aggregation"
+gate: "PASS" # PASS|CONCERNS|FAIL|WAIVED
+status_reason: "进度面板、Top-N 汇总、导出与复运行路径在单元/集成/端到端层面均完成验证，安全与性能守护由 owner 校验、参数规模约束与 timeHttp 指标保障；残余风险仅为未来容量优化，已记录为后续建议。"
+reviewer: "Quinn (Test Architect)"
+updated: "2025-09-26T04:43:50Z"
+
+waiver: { active: false }
+
+top_issues: []
+
+trace:
+  totals:
+    requirements: 4
+    full: 4
+    partial: 0
+    none: 0
+  planning_ref: "docs/qa/assessments/2.4-test-design-20250925.md"
+  uncovered: []
+  notes: "详见 docs/qa/assessments/2.4.progress-aggregation-trace-20250926.md"
+
+nfr_validation:
+  security:
+    status: PASS
+    notes: "导出/复运行统一走 resolveOwnerId，orchestrator 层校验 owner 并在越权时返回 E.FORBIDDEN。"
+  performance:
+    status: PASS
+    notes: "timeHttp 计时、参数规模阈值与导出不触发回测的单测共同确保性能边界受控。"
+  reliability:
+    status: PASS
+    notes: "Vitest/集成/Playwright 多层覆盖提前停止、取消与错误降级，导出前刷新 summary 防止脏数据。"
+  maintainability:
+    status: PASS
+    notes: "金字塔测试结构完整，shared 类型与服务层复用降低维护成本。"
+
+evidence:
+  tests_reviewed: 36
+  risks_identified: 0
+  trace:
+    ac_covered: [1, 2, 3, 4]
+    ac_gaps: []
+  story_file: docs/stories/2.4.progress-aggregation.md
+  traceability: docs/qa/assessments/2.4.progress-aggregation-trace-20250926.md
+  nfr_assessment: docs/qa/assessments/2.4-nfr-20250926.md
+  test_design: docs/qa/assessments/2.4-test-design-20250925.md
+
+quality_score: 92
+expires: "2025-10-10T04:43:50Z"
+
+recommendations:
+  immediate:
+    - action: "在导出/复运行路由补充 401/403 集成测试，以覆盖认证缺失与跨 owner 场景"
+      refs:
+        - "apps/web/src/app/api/v1/optimizations/[id]/export/route.ts"
+        - "apps/web/src/app/api/v1/optimizations/[id]/rerun/route.ts"
+        - "apps/web/src/app/api/v1/optimizations/__tests__/"
+  future:
+    - action: "记录导出 bundle 大小/耗时指标，并评估 Top-N 空态与大批量导出的性能回归用例"
+      refs:
+        - "services/backtest/app/orchestrator.py"
+        - "apps/web/e2e/optimizations-detail.spec.ts"
