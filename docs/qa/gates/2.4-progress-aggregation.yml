@@ -3,9 +3,9 @@ schema: 1
 story: "2.4"
 story_title: "Progress & Aggregation"
 gate: "PASS" # PASS|CONCERNS|FAIL|WAIVED
-status_reason: "进度面板、Top-N 汇总、导出与复运行路径在单元/集成/端到端层面均完成验证，安全与性能守护由 owner 校验、参数规模约束与 timeHttp 指标保障；残余风险仅为未来容量优化，已记录为后续建议。"
+status_reason: "端到端验证确认进度、Top-N、导出与复运行均稳定，鉴权失败分支虽尚缺自动化覆盖但可由共用 owner 校验保障，建议后续补测。"
 reviewer: "Quinn (Test Architect)"
-updated: "2025-09-26T04:43:50Z"
+updated: "2025-09-26T05:02:53Z"
 
 waiver: { active: false }
 
@@ -36,8 +36,8 @@ nfr_validation:
     notes: "金字塔测试结构完整，shared 类型与服务层复用降低维护成本。"
 
 evidence:
-  tests_reviewed: 36
-  risks_identified: 0
+  tests_reviewed: 51
+  risks_identified: 1
   trace:
     ac_covered: [1, 2, 3, 4]
     ac_gaps: []
@@ -46,8 +46,8 @@ evidence:
   nfr_assessment: docs/qa/assessments/2.4-nfr-20250926.md
   test_design: docs/qa/assessments/2.4-test-design-20250925.md
 
-quality_score: 92
-expires: "2025-10-10T04:43:50Z"
+quality_score: 97
+expires: "2025-10-10T05:03:11Z"
 
 recommendations:
   immediate:
